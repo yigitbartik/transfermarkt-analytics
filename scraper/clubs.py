@@ -35,13 +35,24 @@ class ClubsScraper:
             
             for row in club_rows:
                 try:
+                    # 1. Takım Adını HTML'den Çekme
+                    name_td = row.find('td', class_='hauptlink')
+                    if not name_td:
+                        continue
+                    club_name = name_td.text.strip()
+                    
+                    # 2. Piyasa Değerini HTML'den Çekme
+                    market_value_tds = row.find_all('td', class_='rechts')
+                    market_value = market_value_tds[-1].text.strip() if market_value_tds else "0"
+                    
+                    # None yerine çektiğimiz gerçek verileri koyuyoruz!
                     club_data = {
                         'transfermarkt_id': None,
-                        'name': None,
+                        'name': club_name,
                         'country': None,
                         'stadium': None,
                         'logo_url': None,
-                        'market_value': None
+                        'market_value': market_value
                     }
                     clubs.append(club_data)
                 except Exception as e:
