@@ -5,12 +5,33 @@ from database.models import League, Club, Player, Match
 from sqlalchemy import func
 import plotly.express as px
 
+# Eğer veri çekme dosyanın adı farklıysa (örn: fetch_data.py) buradaki "scraper" yazısını değiştir.
+try:
+    import scraper
+except ImportError:
+    pass # Scraper dosyası yoksa uygulama çökmesin diye hata yakalıyoruz
+
 init_db()
 
 st.set_page_config(page_title="Transfermarkt Analytics", layout="wide")
 
 st.sidebar.title("📊 Transfermarkt Analytics")
 page = st.sidebar.radio("Navigation", ["Dashboard", "Clubs", "Players", "Matches", "Statistics"])
+
+# Veri Çekme Butonu (Sidebar)
+st.sidebar.divider()
+if st.sidebar.button("🔄 Verileri Çek / Güncelle", use_container_width=True):
+    with st.spinner("Transfermarkt'tan veriler çekiliyor... (Bu işlem uzun sürebilir)"):
+        try:
+            # DİKKAT: Burada projendeki asıl veri çekme fonksiyonunu çağırmalısın.
+            # Eğer fonksiyonun adı farklıysa (örn: scraper.run() veya scraper.main()) burayı güncelle.
+            scraper.main() 
+            st.sidebar.success("Veriler başarıyla çekildi ve veritabanına eklendi!")
+            st.rerun() # Sayfayı yenileyip grafikleri günceller
+        except NameError:
+            st.sidebar.error("Veri çekme dosyası (scraper.py) bulunamadı!")
+        except Exception as e:
+            st.sidebar.error(f"Veri çekilirken bir hata oluştu: {e}")
 
 def get_db():
     return SessionLocal()
@@ -47,7 +68,7 @@ if page == "Dashboard":
         df_leagues = pd.DataFrame(league_data, columns=["Code", "League Name", "Country"])
         st.dataframe(df_leagues, use_container_width=True)
     else:
-        st.info("No leagues found. Please run the scraper first.")
+        st.info("No leagues found. Please run the scraper from the sidebar first.")
     
     db.close()
 
@@ -168,7 +189,13 @@ elif page == "Statistics":
     
     with col1:
         st.subheader("Clubs by League")
-        clubs_by_league = db.query(League.name, func.count(Club.id).label("count")).join(Club).group_by(League.id).all()
+        # Hata vermemesi için select_from eklendi
+        clubs_by_league = db.query(League.name, func.count(Club.id).label("count"))\
+            .select_from(League)\
+            .join(Club)\
+            .group_by(League.name)\
+            .all()
+            
         if clubs_by_league:
             df = pd.DataFrame(clubs_by_league, columns=["League", "Count"])
             fig = px.bar(df, x="League", y="Count", title="Number of Clubs per League")
@@ -178,7 +205,14 @@ elif page == "Statistics":
     
     with col2:
         st.subheader("Players by League")
-        players_by_league = db.query(League.name, func.count(Player.id).label("count")).join(Club).join(League).group_by(League.id).all()
+        # HATALI KOD DÜZELTİLDİ: select_from ve doğru join sırası eklendi
+        players_by_league = db.query(League.name, func.count(Player.id).label("count"))\
+            .select_from(League)\
+            .join(Club)\
+            .join(Player)\
+            .group_by(League.name)\
+            .all()
+            
         if players_by_league:
             df = pd.DataFrame(players_by_league, columns=["League", "Count"])
             fig = px.pie(df, names="League", values="Count", title="Player Distribution")
