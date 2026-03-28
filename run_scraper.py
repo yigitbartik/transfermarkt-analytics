@@ -13,158 +13,134 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def parse_market_value(value_str):
-    """'€344.75m' veya '€1.31bn' metinlerini float sayıya çevirir"""
-    if not value_str or value_str in ["None", "0", "-", ""]:
+    """'€344.75m' veya '€1.31bn' gibi metinleri sayıya (float) çevirir"""
+    if not value_str or value_str in ["None", "0", "-", "", "N/A"]:
         return 0.0
     try:
-        # Sayı ve nokta dışındaki her şeyi (euro sembolü, harfler) temizle
+        # Sayı ve nokta dışındaki her şeyi temizle
         number_part = re.sub(r'[^\d.]', '', str(value_str))
         if not number_part:
             return 0.0
-            
-        value = float(number_part)
-        
-        # Eğer milyar (bn) ise 1000 ile çarpıp milyon bazına getir
+        val = float(number_part)
+        # Milyar (bn) ise 1000 ile çarpıp milyon bazına getir
         if 'bn' in str(value_str).lower():
-            value *= 1000.0
-        
-        return value
-    except Exception as e:
-        logger.warning(f"Market value parsing error for '{value_str}': {e}")
+            val *= 1000.0
+        return val
+    except:
         return 0.0
 
 def initialize_leagues(db):
-    """Config dosyasındaki ligleri veritabanına ekler"""
+    """Sistemdeki ligleri veritabanına tanımlar"""
     try:
-        for code, league_info in LEAGUES.items():
+        for code, info in LEAGUES.items():
             existing = db.query(League).filter(League.code == code).first()
             if not existing:
                 league = League(
                     code=code,
-                    name=league_info["name"],
-                    country=league_info["country"],
-                    url_slug=league_info["url_slug"]
+                    name=info["name"],
+                    country=info["country"],
+                    url_slug=info["url_slug"]
                 )
                 db.add(league)
         db.commit()
-        logger.info("Leagues initialized successfully")
     except Exception as e:
-        logger.error(f"Error initializing leagues: {e}")
+        logger.error(f"Lig başlatma hatası: {e}")
         db.rollback()
 
 def run_scraper():
-    """Tüm veri çekme sürecini başlatan ana fonksiyon"""
-    logger.info("Starting scraper engine...")
-    
+    """Ana veri çekme ve kayıt motoru"""
+    logger.info("Scraper baslatiliyor...")
     init_db()
     db = SessionLocal()
     
-    # Scraper sınıflarını başlat
-    clubs_scraper = ClubsScraper()
-    players_scraper = PlayersScraper()
-    matches_scraper = MatchesScraper()
+    c_scr = ClubsScraper()
+    p_scr = PlayersScraper()
+    m_scr = MatchesScraper()
     
     try:
         initialize_leagues(db)
         
-        for code, league_info in LEAGUES.items():
-            logger.info(f"--- Processing league: {league_info['name']} ---")
-            
-            current_league = db.query(League).filter(League.code == code).first()
-            if not current_league:
-                continue
+        for code, info in LEAGUES.items():
+            logger.info(f"Lig isleniyor: {info['name']}")
+            curr_league = db.query(League).filter(League.code == code).first()
+            if not curr_league: continue
             
             try:
                 # 1. KULÜPLERİ ÇEK
-                clubs_data = clubs_scraper.scrape_clubs(league_info["url_slug"], code)
+                clubs_data = c_scr.scrape_clubs(info["url_slug"], code)
                 
-                for club_info in clubs_data:
-                    if not club_info.get('name') or not club_info.get('transfermarkt_id'):
-                        continue
+                for c in clubs_data:
+                    if not c.get('name') or not c.get('transfermarkt_id'): continue
                     
-                    # Kulüp veritabanında var mı?
-                    existing_club = db.query(Club).filter(
-                        (Club.transfermarkt_id == club_info['transfermarkt_id']) | 
-                        (Club.name == club_info['name'])
+                    db_club = db.query(Club).filter(
+                        (Club.transfermarkt_id == c['transfermarkt_id']) | (Club.name == c['name'])
                     ).first()
                     
-                    market_val = parse_market_value(club_info.get('market_value', '0'))
+                    m_val = parse_market_value(c.get('market_value', '0'))
 
-                    if not existing_club:
-                        existing_club = Club(
-                            transfermarkt_id=club_info['transfermarkt_id'],
-                            name=club_info['name'],
-                            league_id=current_league.id,
-                            market_value=market_val,
-                            country=league_info['country']
+                    if not db_club:
+                        db_club = Club(
+                            transfermarkt_id=c['transfermarkt_id'],
+                            name=c['name'],
+                            league_id=curr_league.id,
+                            market_value=m_val,
+                            country=info['country']
                         )
-                        db.add(existing_club)
-                        db.flush() # Oyuncular için ID oluşmasını sağlar
+                        db.add(db_club)
+                        db.flush() 
                     else:
-                        existing_club.market_value = market_val
+                        db_club.market_value = m_val
+                        if not db_club.transfermarkt_id: db_club.transfermarkt_id = c['transfermarkt_id']
                     
-                    # 2. OYUNCULARI ÇEK (Kulüp bazlı)
-                    players_data = players_scraper.scrape_players(club_info['transfermarkt_id'])
-                    for p_info in players_data:
-                        if not p_info.get('transfermarkt_id'):
-                            continue
-                            
-                        existing_player = db.query(Player).filter(
-                            Player.transfermarkt_id == p_info['transfermarkt_id']
-                        ).first()
+                    # 2. OYUNCULARI ÇEK
+                    players = p_scr.scrape_players(c['transfermarkt_id'])
+                    for p in players:
+                        if not p.get('transfermarkt_id'): continue
+                        db_p = db.query(Player).filter(Player.transfermarkt_id == p['transfermarkt_id']).first()
+                        p_val = parse_market_value(p.get('market_value', '0'))
                         
-                        p_market_val = parse_market_value(p_info.get('market_value', '0'))
-                        
-                        if not existing_player:
-                            new_player = Player(
-                                transfermarkt_id=p_info['transfermarkt_id'],
-                                name=p_info['name'],
-                                position=p_info.get('position'),
-                                age=p_info.get('age'),
-                                market_value=p_market_val,
-                                club_id=existing_club.id
-                            )
-                            db.add(new_player)
+                        if not db_p:
+                            db.add(Player(
+                                transfermarkt_id=p['transfermarkt_id'],
+                                name=p['name'],
+                                position=p.get('position'),
+                                age=p.get('age'),
+                                market_value=p_val,
+                                club_id=db_club.id
+                            ))
                         else:
-                            existing_player.market_value = p_market_val
-                            existing_player.club_id = existing_club.id
+                            db_p.market_value = p_val
+                            db_p.club_id = db_club.id
                     
-                    # Transfermarkt bot korumasına yakalanmamak için kısa bekleme
-                    time.sleep(0.3)
+                    time.sleep(0.2) # TM engeline karsi
 
                 # 3. MAÇLARI ÇEK
-                matches_data = matches_scraper.scrape_matches(code, league_info["url_slug"])
-                for m_info in matches_data:
-                    if not m_info.get('transfermarkt_id'):
-                        continue
-
-                    existing_match = db.query(Match).filter(Match.transfermarkt_id == m_info['transfermarkt_id']).first()
-                    
-                    if not existing_match:
-                        home_club = db.query(Club).filter(Club.transfermarkt_id == m_info['home_club_id']).first()
-                        away_club = db.query(Club).filter(Club.transfermarkt_id == m_info['away_club_id']).first()
-                        
-                        if home_club and away_club:
-                            new_match = Match(
-                                transfermarkt_id=m_info['transfermarkt_id'],
-                                home_club_id=home_club.id,
-                                away_club_id=away_club.id,
-                                home_goals=m_info['home_goals'],
-                                away_goals=m_info['away_goals'],
-                                status=m_info['status'],
-                                league_id=current_league.id
-                            )
-                            db.add(new_match)
+                matches = m_scr.scrape_matches(code, info["url_slug"])
+                for m in matches:
+                    if not m.get('transfermarkt_id'): continue
+                    if not db.query(Match).filter(Match.transfermarkt_id == m['transfermarkt_id']).first():
+                        h = db.query(Club).filter(Club.transfermarkt_id == m['home_club_id']).first()
+                        a = db.query(Club).filter(Club.transfermarkt_id == m['away_club_id']).first()
+                        if h and a:
+                            db.add(Match(
+                                transfermarkt_id=m['transfermarkt_id'],
+                                home_club_id=h.id,
+                                away_club_id=a.id,
+                                home_goals=m['home_goals'],
+                                away_goals=m['away_goals'],
+                                status=m['status'],
+                                league_id=curr_league.id
+                            ))
                 
-                db.commit() # Lig bittiğinde kaydet
-                logger.info(f"Saved all data for league: {league_info['name']}")
+                db.commit()
+                logger.info(f"{info['name']} basariyla kaydedildi.")
                 
             except Exception as e:
-                logger.error(f"Error in league {league_info['name']}: {e}")
+                logger.error(f"Lig hatasi {info['name']}: {e}")
                 db.rollback()
                 continue
-        
-        logger.info("Full scraping process finished successfully!")
+                
+        logger.info("Islem tamamlandi!")
     finally:
         db.close()
 
