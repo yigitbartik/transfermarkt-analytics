@@ -5,42 +5,54 @@ from database.models import League, Club, Player, Match
 from sqlalchemy import func
 import plotly.express as px
 import os
+import sys
 
-# --- RUN_SCRAPER İÇERİ AKTARMA ---
-run_scraper_func = None
-if os.path.exists("run_scraper.py"):
-    try:
-        import run_scraper
-        run_scraper_func = run_scraper.run_scraper
-    except Exception as e:
-        st.sidebar.error(f"Scraper dosyası yüklendi ama çalıştırılamıyor: {e}")
-else:
-    st.sidebar.warning("⚠️ run_scraper.py dosyası ana dizinde bulunamadı.")
-
-# Veritabanını hazırla
+# Veritabanını başlat
 init_db()
 
-# Sayfa ayarları
 st.set_page_config(page_title="Transfermarkt Analytics 2026", layout="wide")
 
-# Kenar Çubuğu
+# --- SCRAPER YÜKLEME MANTIĞI ---
+run_scraper_func = None
+scraper_status = "Bilinmiyor"
+
+# Dosya sistemini kontrol et (Hata ayıklama için)
+current_dir_files = os.listdir(".")
+
+if "run_scraper.py" in current_dir_files:
+    try:
+        # Dinamik olarak import etmeyi dene
+        import run_scraper
+        run_scraper_func = run_scraper.run_scraper
+        scraper_status = "Hazır ✅"
+    except Exception as e:
+        scraper_status = f"Yükleme Hatası ❌ ({e})"
+else:
+    scraper_status = "Dosya Bulunamadı ⚠️"
+
+# Sidebar
 st.sidebar.title("📊 TM Analytics")
+st.sidebar.info(f"Scraper Durumu: {scraper_status}")
+
+# Eğer dosya bulunamadıysa kullanıcıya mevcut dosyaları göster (Sadece hata ayıklama için)
+if "run_scraper.py" not in current_dir_files:
+    st.sidebar.write("Klasördeki Dosyalar:", current_dir_files)
+
 page = st.sidebar.radio("Navigasyon", ["Dashboard", "Clubs", "Players", "Matches", "Statistics"])
 
-# --- VERİ ÇEKME BUTONU (Key parametresi eklendi!) ---
+# --- VERİ ÇEKME BUTONU ---
 st.sidebar.divider()
-# 'key="scraper_btn_unique"' ekleyerek çakışmayı önledik
-if st.sidebar.button("🔄 Verileri Çek / Güncelle", use_container_width=True, key="scraper_btn_unique"):
+if st.sidebar.button("🔄 Verileri Çek / Güncelle", use_container_width=True, key="unique_scraper_button_2026"):
     if run_scraper_func is not None:
-        with st.spinner("Transfermarkt verileri çekiliyor... Lütfen bekleyin."):
+        with st.spinner("Veriler çekiliyor... Lütfen sayfayı kapatmayın."):
             try:
                 run_scraper_func()
-                st.sidebar.success("Veriler başarıyla güncellendi!")
+                st.sidebar.success("Güncelleme Başarılı!")
                 st.rerun()
             except Exception as e:
-                st.sidebar.error(f"Veri çekilirken hata oluştu: {e}")
+                st.sidebar.error(f"Çalıştırma sırasında hata: {e}")
     else:
-        st.sidebar.error("Hata: run_scraper.py bulunamadı!")
+        st.sidebar.error(f"Hata: run_scraper.py erişilebilir değil. Durum: {scraper_status}")
 
 # Veritabanı Yardımcı Fonksiyonu
 def get_db():
@@ -51,7 +63,6 @@ def get_db():
 if page == "Dashboard":
     st.title("⚽ Football Analytics Dashboard")
     db = get_db()
-    
     try:
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -70,7 +81,7 @@ if page == "Dashboard":
             df_leagues = pd.DataFrame([(l.code, l.name, l.country) for l in leagues], columns=["Kod", "Lig Adı", "Ülke"])
             st.dataframe(df_leagues, use_container_width=True)
         else:
-            st.info("Veritabanı boş. Lütfen soldaki butondan verileri çekin.")
+            st.info("Veritabanı şu an boş.")
     finally:
         db.close()
 
@@ -83,17 +94,14 @@ elif page == "Clubs":
             selected_league = st.selectbox("Lig Seçin", [l.name for l in leagues])
             league = db.query(League).filter(League.name == selected_league).first()
             clubs = db.query(Club).filter(Club.league_id == league.id).all()
-            
             if clubs:
-                club_list = []
-                for c in clubs:
-                    club_list.append({
-                        "Kulüp Adı": c.name,
-                        "Değer (M€)": c.market_value,
-                        "Oyuncu Sayısı": len(c.players) if c.players else 0,
-                        "TM ID": c.transfermarkt_id
-                    })
-                st.dataframe(pd.DataFrame(club_list), use_container_width=True)
+                df_clubs = pd.DataFrame([{
+                    "Kulüp Adı": c.name,
+                    "Piyasa Değeri (M€)": f"{c.market_value:,.2f}",
+                    "Oyuncu Sayısı": len(c.players),
+                    "TM ID": c.transfermarkt_id
+                } for c in clubs])
+                st.dataframe(df_clubs, use_container_width=True)
     finally:
         db.close()
 
@@ -106,15 +114,14 @@ elif page == "Players":
             selected_club = st.selectbox("Kulüp Seçin", [c.name for c in clubs])
             club = db.query(Club).filter(Club.name == selected_club).first()
             players = db.query(Player).filter(Player.club_id == club.id).all()
-            
             if players:
-                player_list = [{
+                df_p = pd.DataFrame([{
                     "Ad": p.name,
-                    "Pozisyon": p.position or "Bilinmiyor",
-                    "Yaş": p.age or "N/A",
-                    "Değer (M€)": p.market_value
-                } for p in players]
-                st.dataframe(pd.DataFrame(player_list), use_container_width=True)
+                    "Pozisyon": p.position,
+                    "Yaş": p.age,
+                    "Değer (M€)": f"{p.market_value:,.2f}"
+                } for p in players])
+                st.dataframe(df_p, use_container_width=True)
     finally:
         db.close()
 
@@ -127,28 +134,24 @@ elif page == "Matches":
             selected_league = st.selectbox("Lig Seçin", [l.name for l in leagues])
             league = db.query(League).filter(League.name == selected_league).first()
             matches = db.query(Match).filter(Match.league_id == league.id).all()
-            
             if matches:
-                match_list = [{
+                df_m = pd.DataFrame([{
                     "Ev Sahibi": m.home_club.name if m.home_club else "N/A",
                     "Deplasman": m.away_club.name if m.away_club else "N/A",
                     "Skor": f"{m.home_goals} - {m.away_goals}" if m.home_goals is not None else "Oynanmadı",
                     "Durum": m.status
-                } for m in matches]
-                st.dataframe(pd.DataFrame(match_list), use_container_width=True)
+                } for m in matches])
+                st.dataframe(df_m, use_container_width=True)
     finally:
         db.close()
 
 elif page == "Statistics":
-    st.title("📈 İstatistiksel Özet")
+    st.title("📈 İstatistikler")
     db = get_db()
     try:
         data = db.query(League.name, func.sum(Club.market_value)).join(Club).group_by(League.name).all()
         if data:
-            df = pd.DataFrame(data, columns=["Lig", "Toplam Değer (M€)"])
-            fig = px.pie(df, values="Toplam Değer (M€)", names="Lig", title="Liglerin Ekonomik Dağılımı")
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("İstatistik oluşturmak için yeterli veri yok.")
+            df = pd.DataFrame(data, columns=["Lig", "Değer"])
+            st.plotly_chart(px.pie(df, values="Değer", names="Lig", title="Lig Değer Dağılımı"), use_container_width=True)
     finally:
         db.close()
