@@ -10,6 +10,23 @@ from scraper.matches import MatchesScraper
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def parse_market_value(value_str):
+    """'€344.75m' veya '€1.31bn' gibi metinleri sayıya çevirir"""
+    if not value_str or value_str == "None" or value_str == "0":
+        return 0.0
+    try:
+        # Sadece rakam ve noktaları al (Euro sembolü vb. temizle)
+        number_part = re.sub(r'[^\d.]', '', value_str)
+        value = float(number_part)
+        
+        # Milyon (m) veya Milyar (bn) kontrolü
+        if 'bn' in value_str.lower():
+            value *= 1000.0  # Milyar ise 1000 ile çarp (Milyon cinsinden tutmak için)
+        
+        return value
+    except:
+        return 0.0
+
 def initialize_leagues(db):
     """Initialize leagues in database"""
     try:
@@ -48,33 +65,29 @@ def run_scraper():
                 continue
             
             try:
-                # 1. Takımları çek
+                # 1. KULÜPLERİ ÇEK
                 clubs_data = clubs_scraper.scrape_clubs(league_info["url_slug"], code)
                 
-                # 2. Veritabanına kaydet
+                # 2. VERİTABANINA KAYDET
                 for club_info in clubs_data:
-                    # Daha önce eklenmiş mi kontrol et
+                    if not club_info['name']:
+                        continue
+                        
                     existing_club = db.query(Club).filter(Club.name == club_info['name']).first()
                     
-                    if not existing_club:
-                        # PİYASA DEĞERİ TEMİZLEME: '€344.75m' -> 344.75
-                        raw_value = club_info.get('market_value', '0')
-                        # Sadece sayıları ve noktayı tutuyoruz
-                        clean_value = re.sub(r'[^\d.]', '', raw_value.replace('bn', '000').replace('m', ''))
-                        
-                        try:
-                            # Eğer modelin sayı bekliyorsa sayıya çeviriyoruz, hata alırsak 0 diyoruz
-                            final_value = float(clean_value) if clean_value else 0.0
-                        except:
-                            final_value = 0.0
+                    # Piyasada metni (örn: €344.75m) sayıya çeviriyoruz
+                    final_market_value = parse_market_value(club_info.get('market_value', '0'))
 
+                    if not existing_club:
                         new_club = Club(
                             name=club_info['name'],
                             league_id=current_league.id,
-                            # Modelin string bekliyorsa raw_value, sayı bekliyorsa final_value gönder
-                            market_value=str(raw_value) 
+                            market_value=final_market_value # ARTIK SAYI OLARAK GİDİYOR
                         )
                         db.add(new_club)
+                    else:
+                        # Varsa değerini güncelle
+                        existing_club.market_value = final_market_value
                 
                 db.commit()
                 logger.info(f"Saved {len(clubs_data)} clubs for {league_info['name']}")
