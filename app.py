@@ -5,15 +5,11 @@ from database.models import League, Club, Player, Match
 from sqlalchemy import func
 import plotly.express as px
 
-# Veri çekme fonksiyonunu içeri aktarıyoruz. 
-# (Dosya adının main.py veya scraper.py olma ihtimaline karşı ikisini de deniyoruz)
+# İŞTE BURAYI DÜZELTTİK: Dosyanın gerçek adı "run_scraper.py"
 try:
-    from main import run_scraper
+    from run_scraper import run_scraper
 except ImportError:
-    try:
-        from scraper import run_scraper
-    except ImportError:
-        run_scraper = None
+    run_scraper = None
 
 init_db()
 
@@ -34,7 +30,7 @@ if st.sidebar.button("🔄 Verileri Çek / Güncelle", use_container_width=True)
             except Exception as e:
                 st.sidebar.error(f"Veri çekilirken bir hata oluştu: {e}")
     else:
-        st.sidebar.error("Veri çekme dosyası (main.py veya scraper.py) bulunamadı! Lütfen dosya adını kontrol edin.")
+        st.sidebar.error("Veri çekme dosyası (run_scraper.py) bulunamadı! Lütfen dosya adını kontrol edin.")
 # --------------------------------------
 
 def get_db():
