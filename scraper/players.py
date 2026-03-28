@@ -15,13 +15,17 @@ class PlayersScraper:
     def scrape_players(self, club_id):
         """Bir kulübün kadrosundaki oyuncuları çeker"""
         try:
-            url = f"{self.base_url}/kader/verein/{club_id}/plus/1"
+            # KRİTİK DÜZELTME: URL formatı /squad/kader/... olarak güncellendi
+            url = f"{self.base_url}/squad/kader/verein/{club_id}/plus/1"
+            logger.info(f"Scraping players from {url}")
+            
             response = requests.get(url, headers=self.headers, timeout=self.timeout)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.content, 'html.parser')
             players = []
             
+            # Oyuncu tablosunu bul
             player_rows = soup.select('table.items > tbody > tr')
             
             for row in player_rows:
@@ -41,7 +45,8 @@ class PlayersScraper:
                     pos_table = row.find('table', class_='inline-table')
                     if pos_table:
                         pos_rows = pos_table.find_all('tr')
-                        if len(pos_rows) > 1: position = pos_rows[1].text.strip()
+                        if len(pos_rows) > 1: 
+                            position = pos_rows[1].text.strip()
 
                     # Yaş
                     zentriert = row.find_all('td', class_='zentriert')
@@ -61,9 +66,11 @@ class PlayersScraper:
                         'age': age,
                         'market_value': market_value
                     })
-                except:
+                except Exception as e:
                     continue
+            
+            logger.info(f"Successfully scraped {len(players)} players for club ID: {club_id}")
             return players
         except Exception as e:
-            logger.error(f"PlayersScraper Error: {e}")
+            logger.error(f"PlayersScraper Error for {club_id}: {e}")
             return []

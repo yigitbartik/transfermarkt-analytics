@@ -11,7 +11,8 @@ class MatchesScraper:
     
     def scrape_matches(self, league_code, league_slug):
         try:
-            url = f"{self.base_url}/{league_slug}/spieltag/wettbewerb/{league_code}"
+            # KRİTİK DÜZELTME: URL başına /fixtures/ eklendi
+            url = f"{self.base_url}/fixtures/spieltag/wettbewerb/{league_code}"
             response = requests.get(url, headers=self.headers, timeout=self.timeout)
             soup = BeautifulSoup(response.content, 'html.parser')
             matches = []
