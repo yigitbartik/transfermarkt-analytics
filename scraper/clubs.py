@@ -15,7 +15,8 @@ class ClubsScraper:
     def scrape_clubs(self, league_slug, league_code):
         """Scrape clubs from a league"""
         try:
-            url = f"{self.base_url}/{league_code}/startseite/wettbewerb/{league_slug}"
+            # İŞTE DÜZELTİLEN SATIR: league_slug ve league_code yer değiştirdi!
+            url = f"{self.base_url}/{league_slug}/startseite/wettbewerb/{league_code}"
             logger.info(f"Scraping clubs from {url}")
             
             response = requests.get(url, headers=self.headers, timeout=self.timeout)
