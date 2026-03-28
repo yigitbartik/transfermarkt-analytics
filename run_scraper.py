@@ -1,4 +1,5 @@
 import logging
+import re
 from config import LEAGUES
 from database.db import init_db, SessionLocal
 from database.models import League, Club, Player, Match
@@ -33,50 +34,50 @@ def run_scraper():
     logger.info("Starting scraper...")
     
     init_db()
-    db = SessionLocal() # Veritabanı bağlantısını açtık
+    db = SessionLocal()
     
     try:
         initialize_leagues(db)
-        
         clubs_scraper = ClubsScraper()
-        players_scraper = PlayersScraper()
-        matches_scraper = MatchesScraper()
         
         for code, league_info in LEAGUES.items():
             logger.info(f"Processing league: {league_info['name']}")
             
-            # Hangi ligde olduğumuzu veritabanından buluyoruz
             current_league = db.query(League).filter(League.code == code).first()
             if not current_league:
                 continue
             
             try:
-                # 1. KULÜPLERİ ÇEK
-                clubs = clubs_scraper.scrape_clubs(league_info["url_slug"], code)
-                logger.info(f"Scraped {len(clubs)} clubs for {league_info['name']}")
+                # 1. Takımları çek
+                clubs_data = clubs_scraper.scrape_clubs(league_info["url_slug"], code)
                 
-                # 2. KULÜPLERİ VERİTABANINA KAYDET (EKRANLARA VERİ BURADAN GİDECEK!)
-                for club_data in clubs:
-                    # İsim boş değilse ve veritabanında daha önce yoksa ekle
-                    if club_data['name']:
-                        existing_club = db.query(Club).filter(Club.name == club_data['name']).first()
-                        if not existing_club:
-                            new_club = Club(
-                                name=club_data['name'],
-                                league_id=current_league.id,
-                                market_value=club_data.get('market_value', '0'),
-                                country=club_data.get('country'),
-                                stadium=club_data.get('stadium')
-                            )
-                            db.add(new_club)
+                # 2. Veritabanına kaydet
+                for club_info in clubs_data:
+                    # Daha önce eklenmiş mi kontrol et
+                    existing_club = db.query(Club).filter(Club.name == club_info['name']).first()
+                    
+                    if not existing_club:
+                        # PİYASA DEĞERİ TEMİZLEME: '€344.75m' -> 344.75
+                        raw_value = club_info.get('market_value', '0')
+                        # Sadece sayıları ve noktayı tutuyoruz
+                        clean_value = re.sub(r'[^\d.]', '', raw_value.replace('bn', '000').replace('m', ''))
+                        
+                        try:
+                            # Eğer modelin sayı bekliyorsa sayıya çeviriyoruz, hata alırsak 0 diyoruz
+                            final_value = float(clean_value) if clean_value else 0.0
+                        except:
+                            final_value = 0.0
+
+                        new_club = Club(
+                            name=club_info['name'],
+                            league_id=current_league.id,
+                            # Modelin string bekliyorsa raw_value, sayı bekliyorsa final_value gönder
+                            market_value=str(raw_value) 
+                        )
+                        db.add(new_club)
                 
-                # Değişiklikleri kaydet
                 db.commit()
-                logger.info(f"Saved clubs to database for {league_info['name']}")
-                
-                # 3. MAÇLARI ÇEK
-                matches = matches_scraper.scrape_matches(code, league_info["url_slug"])
-                logger.info(f"Scraped {len(matches)} matches for {league_info['name']}")
+                logger.info(f"Saved {len(clubs_data)} clubs for {league_info['name']}")
                 
             except Exception as e:
                 logger.error(f"Error processing {league_info['name']}: {e}")
