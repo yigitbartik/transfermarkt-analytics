@@ -5,11 +5,15 @@ from database.models import League, Club, Player, Match
 from sqlalchemy import func
 import plotly.express as px
 
-# Eğer veri çekme dosyanın adı farklıysa (örn: fetch_data.py) buradaki "scraper" yazısını değiştir.
+# Veri çekme fonksiyonunu içeri aktarıyoruz. 
+# (Dosya adının main.py veya scraper.py olma ihtimaline karşı ikisini de deniyoruz)
 try:
-    import scraper
+    from main import run_scraper
 except ImportError:
-    pass # Scraper dosyası yoksa uygulama çökmesin diye hata yakalıyoruz
+    try:
+        from scraper import run_scraper
+    except ImportError:
+        run_scraper = None
 
 init_db()
 
@@ -18,20 +22,20 @@ st.set_page_config(page_title="Transfermarkt Analytics", layout="wide")
 st.sidebar.title("📊 Transfermarkt Analytics")
 page = st.sidebar.radio("Navigation", ["Dashboard", "Clubs", "Players", "Matches", "Statistics"])
 
-# Veri Çekme Butonu (Sidebar)
+# --- YENİ EKLENEN VERİ ÇEKME BUTONU ---
 st.sidebar.divider()
 if st.sidebar.button("🔄 Verileri Çek / Güncelle", use_container_width=True):
-    with st.spinner("Transfermarkt'tan veriler çekiliyor... (Bu işlem uzun sürebilir)"):
-        try:
-            # DİKKAT: Burada projendeki asıl veri çekme fonksiyonunu çağırmalısın.
-            # Eğer fonksiyonun adı farklıysa (örn: scraper.run() veya scraper.main()) burayı güncelle.
-            scraper.main() 
-            st.sidebar.success("Veriler başarıyla çekildi ve veritabanına eklendi!")
-            st.rerun() # Sayfayı yenileyip grafikleri günceller
-        except NameError:
-            st.sidebar.error("Veri çekme dosyası (scraper.py) bulunamadı!")
-        except Exception as e:
-            st.sidebar.error(f"Veri çekilirken bir hata oluştu: {e}")
+    if run_scraper is not None:
+        with st.spinner("Transfermarkt'tan veriler çekiliyor... (Bu işlem uzun sürebilir)"):
+            try:
+                run_scraper()  # Asıl veri çekme fonksiyonunu çalıştırır
+                st.sidebar.success("Veriler başarıyla çekildi ve veritabanına eklendi!")
+                st.rerun() # Sayfayı yenileyip grafikleri günceller
+            except Exception as e:
+                st.sidebar.error(f"Veri çekilirken bir hata oluştu: {e}")
+    else:
+        st.sidebar.error("Veri çekme dosyası (main.py veya scraper.py) bulunamadı! Lütfen dosya adını kontrol edin.")
+# --------------------------------------
 
 def get_db():
     return SessionLocal()
@@ -189,7 +193,7 @@ elif page == "Statistics":
     
     with col1:
         st.subheader("Clubs by League")
-        # Hata vermemesi için select_from eklendi
+        # HATA DÜZELTİLDİ: select_from(League) eklendi
         clubs_by_league = db.query(League.name, func.count(Club.id).label("count"))\
             .select_from(League)\
             .join(Club)\
@@ -205,7 +209,7 @@ elif page == "Statistics":
     
     with col2:
         st.subheader("Players by League")
-        # HATALI KOD DÜZELTİLDİ: select_from ve doğru join sırası eklendi
+        # HATA DÜZELTİLDİ: select_from(League) ve doğru join sırası eklendi
         players_by_league = db.query(League.name, func.count(Player.id).label("count"))\
             .select_from(League)\
             .join(Club)\
