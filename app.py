@@ -1,0 +1,177 @@
+import streamlit as st
+import pandas as pd
+from database.db import init_db, SessionLocal
+from database.models import League, Club, Player, Match
+from sqlalchemy import func
+import plotly.express as px
+
+init_db()
+
+st.set_page_config(page_title="Transfermarkt Analytics", layout="wide")
+
+st.sidebar.title("📊 Transfermarkt Analytics")
+page = st.sidebar.radio("Navigation", ["Dashboard", "Clubs", "Players", "Matches", "Statistics"])
+
+def get_db():
+    return SessionLocal()
+
+if page == "Dashboard":
+    st.title("⚽ Football Analytics Dashboard")
+    
+    db = get_db()
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        leagues_count = db.query(func.count(League.id)).scalar()
+        st.metric("Total Leagues", leagues_count)
+    
+    with col2:
+        clubs_count = db.query(func.count(Club.id)).scalar()
+        st.metric("Total Clubs", clubs_count)
+    
+    with col3:
+        players_count = db.query(func.count(Player.id)).scalar()
+        st.metric("Total Players", players_count)
+    
+    with col4:
+        matches_count = db.query(func.count(Match.id)).scalar()
+        st.metric("Total Matches", matches_count)
+    
+    st.divider()
+    
+    st.subheader("📋 Supported Leagues")
+    leagues = db.query(League).all()
+    if leagues:
+        league_data = [(l.code, l.name, l.country) for l in leagues]
+        df_leagues = pd.DataFrame(league_data, columns=["Code", "League Name", "Country"])
+        st.dataframe(df_leagues, use_container_width=True)
+    else:
+        st.info("No leagues found. Please run the scraper first.")
+    
+    db.close()
+
+elif page == "Clubs":
+    st.title("⚽ Clubs")
+    
+    db = get_db()
+    
+    leagues = db.query(League).all()
+    league_names = [l.name for l in leagues]
+    selected_league = st.selectbox("Select League", league_names)
+    
+    if selected_league:
+        league = db.query(League).filter(League.name == selected_league).first()
+        clubs = db.query(Club).filter(Club.league_id == league.id).all()
+        
+        if clubs:
+            club_data = []
+            for club in clubs:
+                club_data.append({
+                    "Name": club.name,
+                    "Country": club.country,
+                    "Stadium": club.stadium,
+                    "Market Value": club.market_value,
+                    "Players": len(club.players)
+                })
+            
+            df_clubs = pd.DataFrame(club_data)
+            st.dataframe(df_clubs, use_container_width=True)
+        else:
+            st.info("No clubs found for this league.")
+    
+    db.close()
+
+elif page == "Players":
+    st.title("👤 Players")
+    
+    db = get_db()
+    
+    clubs = db.query(Club).all()
+    club_names = [c.name for c in clubs]
+    
+    if club_names:
+        selected_club = st.selectbox("Select Club", club_names)
+        
+        if selected_club:
+            club = db.query(Club).filter(Club.name == selected_club).first()
+            players = db.query(Player).filter(Player.club_id == club.id).all()
+            
+            if players:
+                player_data = []
+                for player in players:
+                    player_data.append({
+                        "Name": player.name,
+                        "Position": player.position,
+                        "Age": player.age,
+                        "Jersey": player.jersey_number,
+                        "Market Value": player.market_value,
+                        "Height": player.height
+                    })
+                
+                df_players = pd.DataFrame(player_data)
+                st.dataframe(df_players, use_container_width=True)
+            else:
+                st.info("No players found for this club.")
+    else:
+        st.info("No clubs found.")
+    
+    db.close()
+
+elif page == "Matches":
+    st.title("🏟️ Matches")
+    
+    db = get_db()
+    
+    leagues = db.query(League).all()
+    league_names = [l.name for l in leagues]
+    selected_league = st.selectbox("Select League", league_names)
+    
+    if selected_league:
+        league = db.query(League).filter(League.name == selected_league).first()
+        matches = db.query(Match).filter(Match.league_id == league.id).all()
+        
+        if matches:
+            match_data = []
+            for match in matches:
+                match_data.append({
+                    "Date": match.match_date,
+                    "Time": match.match_time,
+                    "Home": match.home_club.name if match.home_club else "N/A",
+                    "Away": match.away_club.name if match.away_club else "N/A",
+                    "Score": f"{match.home_goals or '-'} vs {match.away_goals or '-'}",
+                    "Status": match.status,
+                    "Attendance": match.attendance
+                })
+            
+            df_matches = pd.DataFrame(match_data)
+            st.dataframe(df_matches, use_container_width=True)
+        else:
+            st.info("No matches found for this league.")
+    
+    db.close()
+
+elif page == "Statistics":
+    st.title("📈 Statistics")
+    
+    db = get_db()
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Clubs by League")
+        clubs_by_league = db.query(League.name, func.count(Club.id).label("count")).join(Club).group_by(League.id).all()
+        if clubs_by_league:
+            df = pd.DataFrame(clubs_by_league, columns=["League", "Count"])
+            fig = px.bar(df, x="League", y="Count", title="Number of Clubs per League")
+            st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        st.subheader("Players by League")
+        players_by_league = db.query(League.name, func.count(Player.id).label("count")).join(Club).join(League).group_by(League.id).all()
+        if players_by_league:
+            df = pd.DataFrame(players_by_league, columns=["League", "Count"])
+            fig = px.pie(df, names="League", values="Count", title="Player Distribution")
+            st.plotly_chart(fig, use_container_width=True)
+    
+    db.close()
