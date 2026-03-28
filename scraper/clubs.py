@@ -13,9 +13,9 @@ class ClubsScraper:
         self.timeout = REQUEST_TIMEOUT
     
     def scrape_clubs(self, league_slug, league_code):
-        """Scrape clubs from a league"""
+        """Scrape clubs from a league including their Transfermarkt IDs"""
         try:
-            # Doğru URL sıralaması
+            # Doğru URL yapısı: /lig-adi/startseite/wettbewerb/LIG-KODU
             url = f"{self.base_url}/{league_slug}/startseite/wettbewerb/{league_code}"
             logger.info(f"Scraping clubs from {url}")
             
@@ -25,7 +25,7 @@ class ClubsScraper:
             soup = BeautifulSoup(response.content, 'html.parser')
             clubs = []
             
-            # Transfermarkt'ın ana tablosunu bulacak şekilde HTML okuyucu güncellendi
+            # Ana takımlar tablosunu bul
             table = soup.find('table', class_='items')
             
             if table and table.find('tbody'):
@@ -35,24 +35,39 @@ class ClubsScraper:
             
             for row in club_rows:
                 try:
-                    # 1. Takım Adını HTML'den Çekme
+                    # Takım ismi ve linkini barındıran hücreyi bul
                     name_td = row.find('td', class_='hauptlink')
                     if not name_td:
                         continue
-                    club_name = name_td.text.strip()
                     
-                    # 2. Piyasa Değerini HTML'den Çekme
+                    link_tag = name_td.find('a')
+                    if not link_tag:
+                        continue
+                        
+                    club_name = link_tag.text.strip()
+                    club_href = link_tag.get('href', '')
+                    
+                    # --- TRANSFERMARKT ID ÇIKARMA ---
+                    # Href örneği: /galatasaray/startseite/verein/141/saison_id/2023
+                    tm_id = None
+                    if 'verein/' in club_href:
+                        # 'verein/' kelimesinden sonraki ilk sayı grubunu alıyoruz
+                        tm_id = club_href.split('verein/')[1].split('/')[0]
+                    
+                    if not tm_id:
+                        continue # ID bulunamazsa veritabanı hata verir, bu yüzden atlıyoruz
+                    
+                    # Piyasa değerini çek (en sağdaki sütun)
                     market_value_tds = row.find_all('td', class_='rechts')
                     market_value = market_value_tds[-1].text.strip() if market_value_tds else "0"
                     
-                    # None yerine çektiğimiz gerçek verileri koyuyoruz!
                     club_data = {
-                        'transfermarkt_id': None,
+                        'transfermarkt_id': tm_id, # Artık NULL değil, gerçek ID!
                         'name': club_name,
+                        'market_value': market_value,
                         'country': None,
                         'stadium': None,
-                        'logo_url': None,
-                        'market_value': market_value
+                        'logo_url': None
                     }
                     clubs.append(club_data)
                 except Exception as e:
@@ -75,17 +90,12 @@ class ClubsScraper:
             
             soup = BeautifulSoup(response.content, 'html.parser')
             
+            # Bu kısım detay sayfası için geliştirilebilir
             details = {
                 'transfermarkt_id': club_id,
                 'name': None,
-                'country': None,
-                'founded': None,
-                'stadium': None,
-                'website': None,
-                'logo_url': None,
                 'market_value': None
             }
-            
             return details
             
         except Exception as e:
