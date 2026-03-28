@@ -13,11 +13,11 @@ class MatchesScraper:
         self.timeout = REQUEST_TIMEOUT
     
     def scrape_matches(self, league_code, league_slug, season=None):
-        """Scrape matches from a league"""
+        """Ligdeki maç sonuçlarını ve fikstürü Transfermarkt'tan çeker"""
         try:
-            # İŞTE DÜZELTİLEN KISIM: league_slug ve league_code yer değiştirdi!
+            # URL Yapısı Düzenlendi: /lig-adi/spieltag/wettbewerb/LIG-KODU
             if season:
-                url = f"{self.base_url}/{league_slug}/spieltag/wettbewerb/{league_code}/saison/{season}"
+                url = f"{self.base_url}/{league_slug}/spieltag/wettbewerb/{league_code}/saison_id/{season}"
             else:
                 url = f"{self.base_url}/{league_slug}/spieltag/wettbewerb/{league_code}"
             
@@ -29,25 +29,68 @@ class MatchesScraper:
             soup = BeautifulSoup(response.content, 'html.parser')
             matches = []
             
-            match_rows = soup.find_all('tr')
+            # Transfermarkt'taki maç satırlarını hedefle (begegnungZeile sınıfı)
+            # Eğer bu sınıf değişmişse 'tr' bazlı yedek sisteme geçer
+            match_rows = soup.select('tr.begegnungZeile')
             
+            if not match_rows:
+                # Alternatif: Tablodaki skor içeren satırları bulmaya çalış
+                match_rows = soup.find_all('tr')
+
             for row in match_rows:
                 try:
+                    # 1. Takım İsimlerini ve Linklerini Bul
+                    # Takımlar genelde 'spieltagsansicht-vereinsname' sınıfındadır
+                    team_cells = row.select('td.spieltagsansicht-vereinsname')
+                    if len(team_cells) < 2:
+                        continue # Maç satırı değilse atla
+                    
+                    home_link = team_cells[0].find('a')
+                    away_link = team_cells[1].find('a')
+                    
+                    if not home_link or not away_link:
+                        continue
+
+                    # Kulüp ID'lerini linkten ayıkla (/verein/141 gibi)
+                    home_tm_id = home_link['href'].split('verein/')[1].split('/')[0]
+                    away_tm_id = away_link['href'].split('verein/')[1].split('/')[0]
+
+                    # 2. Skoru ve Maç ID'sini Çek
+                    # Skor genelde 'zeile-ergebnis' sınıfındaki linkin içindedir
+                    result_cell = row.find('td', class_='zeile-ergebnis')
+                    if not result_cell:
+                        continue
+                        
+                    result_link = result_cell.find('a')
+                    if not result_link:
+                        continue
+                        
+                    score_text = result_link.text.strip() # Örn: "2:1"
+                    
+                    # Maç ID'sini linkten çek (/spielbericht/index/spielbericht/4345226)
+                    match_tm_id = result_link['href'].split('spielbericht/')[1].split('/')[0]
+
+                    # Skoru parçala
+                    home_goals, away_goals = None, None
+                    if ':' in score_text and score_text != "-:-":
+                        parts = score_text.split(':')
+                        home_goals = int(parts[0]) if parts[0].isdigit() else None
+                        away_goals = int(parts[1]) if parts[1].isdigit() else None
+
                     match_data = {
-                        'transfermarkt_id': None,
-                        'home_club_id': None,
-                        'away_club_id': None,
-                        'match_date': None,
-                        'match_time': None,
-                        'home_goals': None,
-                        'away_goals': None,
-                        'status': None,
-                        'stadium': None,
-                        'attendance': None
+                        'transfermarkt_id': match_tm_id, # NULL Hatasını önler
+                        'home_club_id': home_tm_id,
+                        'away_club_id': away_tm_id,
+                        'home_goals': home_goals,
+                        'away_goals': away_goals,
+                        'status': 'Finished' if home_goals is not None else 'Scheduled',
+                        'match_date': None, # Gerekirse eklenebilir
+                        'match_time': None
                     }
                     matches.append(match_data)
+                    
                 except Exception as e:
-                    logger.error(f"Error parsing match row: {e}")
+                    # Bir satırda hata olursa diğerlerine devam et
                     continue
             
             logger.info(f"Successfully scraped {len(matches)} matches")
