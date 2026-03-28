@@ -15,10 +15,11 @@ class MatchesScraper:
     def scrape_matches(self, league_code, league_slug, season=None):
         """Scrape matches from a league"""
         try:
+            # İŞTE DÜZELTİLEN KISIM: league_slug ve league_code yer değiştirdi!
             if season:
-                url = f"{self.base_url}/{league_code}/spieltag/wettbewerb/{league_slug}/saison/{season}"
+                url = f"{self.base_url}/{league_slug}/spieltag/wettbewerb/{league_code}/saison/{season}"
             else:
-                url = f"{self.base_url}/{league_code}/spieltag/wettbewerb/{league_slug}"
+                url = f"{self.base_url}/{league_slug}/spieltag/wettbewerb/{league_code}"
             
             logger.info(f"Scraping matches from {url}")
             
