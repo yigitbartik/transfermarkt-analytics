@@ -1,99 +1,69 @@
+import requests
+from bs4 import BeautifulSoup
+from config import BASE_URL, REQUEST_TIMEOUT, USER_AGENT
 import logging
-import re
-from config import LEAGUES
-from database.db import init_db, SessionLocal
-from database.models import League, Club, Player, Match
-from scraper.clubs import ClubsScraper
-from scraper.players import PlayersScraper
-from scraper.matches import MatchesScraper
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def parse_mv(v):
-    """Piyasa değerini sayıya çevirir"""
-    if not v or v in ["None", "0", "-", ""]: return 0.0
-    try:
-        num = re.sub(r'[^\d.]', '', str(v))
-        val = float(num) if num else 0.0
-        if 'bn' in str(v).lower(): val *= 1000.0
-        return val
-    except: return 0.0
-
-def initialize_leagues(db):
-    try:
-        for code, info in LEAGUES.items():
-            existing = db.query(League).filter(League.code == code).first()
-            if not existing:
-                db.add(League(code=code, name=info["name"], country=info["country"], url_slug=info["url_slug"]))
-        db.commit()
-    except Exception as e:
-        logger.error(f"League init error: {e}")
-        db.rollback()
-
-def run_scraper():
-    logger.info("Scraper engine starting...")
-    init_db()
-    db = SessionLocal()
+class PlayersScraper:
+    def __init__(self):
+        self.base_url = BASE_URL
+        self.headers = {"User-Agent": USER_AGENT}
+        self.timeout = REQUEST_TIMEOUT
     
-    c_scr, p_scr, m_scr = ClubsScraper(), PlayersScraper(), MatchesScraper()
-    
-    try:
-        initialize_leagues(db)
-        for code, info in LEAGUES.items():
-            logger.info(f"--- League: {info['name']} ---")
-            curr_league = db.query(League).filter(League.code == code).first()
-            if not curr_league: continue
+    def scrape_players(self, club_id):
+        """Bir kulübün kadrosundaki oyuncuları çeker"""
+        try:
+            url = f"{self.base_url}/kader/verein/{club_id}/plus/1"
+            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response.raise_for_status()
             
-            # 1. KULÜPLER VE OYUNCULAR
-            clubs_data = c_scr.scrape_clubs(info["url_slug"], code)
-            for c in clubs_data:
-                if not c.get('transfermarkt_id'): continue
-                
-                db_club = db.query(Club).filter(Club.transfermarkt_id == c['transfermarkt_id']).first()
-                mv = parse_mv(c['market_value'])
-                
-                if not db_club:
-                    db_club = Club(transfermarkt_id=c['transfermarkt_id'], name=c['name'], 
-                                   league_id=curr_league.id, market_value=mv)
-                    db.add(db_club)
-                    db.flush()
-                else:
-                    db_club.market_value = mv
-                
-                # 2. OYUNCU EKLEME
-                p_list = p_scr.scrape_players(c['transfermarkt_id'])
-                for p in p_list:
-                    if not p.get('transfermarkt_id'): continue
-                    db_p = db.query(Player).filter(Player.transfermarkt_id == p['transfermarkt_id']).first()
-                    p_mv = parse_mv(p['market_value'])
+            soup = BeautifulSoup(response.content, 'html.parser')
+            players = []
+            
+            player_rows = soup.select('table.items > tbody > tr')
+            
+            for row in player_rows:
+                name_cell = row.find('td', class_='hauptlink')
+                if not name_cell: continue
                     
-                    if not db_p:
-                        db.add(Player(transfermarkt_id=p['transfermarkt_id'], name=p['name'], 
-                                      position=p['position'], age=p['age'], market_value=p_mv, 
-                                      club_id=db_club.id, jersey_number=p.get('jersey_number')))
-                    else:
-                        db_p.market_value = p_mv
+                try:
+                    name_tag = name_cell.find('a')
+                    if not name_tag: continue
+                    
+                    p_name = name_tag.text.strip()
+                    p_href = name_tag.get('href', '')
+                    p_id = p_href.split('spieler/')[1].split('/')[0] if 'spieler/' in p_href else None
 
-            # 3. MAÇLAR
-            m_list = m_scr.scrape_matches(code, info["url_slug"])
-            for m in m_list:
-                if not m.get('transfermarkt_id'): continue
-                if not db.query(Match).filter(Match.transfermarkt_id == m['transfermarkt_id']).first():
-                    h = db.query(Club).filter(Club.transfermarkt_id == m['home_club_id']).first()
-                    a = db.query(Club).filter(Club.transfermarkt_id == m['away_club_id']).first()
-                    if h and a:
-                        db.add(Match(transfermarkt_id=m['transfermarkt_id'], home_club_id=h.id, 
-                                     away_club_id=a.id, home_goals=m['home_goals'], 
-                                     away_goals=m['away_goals'], league_id=curr_league.id, 
-                                     status=m['status']))
-            
-            db.commit()
-            logger.info(f"Updated {info['name']} successfully.")
-            
-        logger.info("Scraper process completed!")
-    finally:
-        db.close()
+                    # Mevki
+                    position = "N/A"
+                    pos_table = row.find('table', class_='inline-table')
+                    if pos_table:
+                        pos_rows = pos_table.find_all('tr')
+                        if len(pos_rows) > 1: position = pos_rows[1].text.strip()
 
-if __name__ == "__main__":
-    run_scraper()
+                    # Yaş
+                    zentriert = row.find_all('td', class_='zentriert')
+                    age = None
+                    if len(zentriert) > 2:
+                        age_txt = zentriert[2].text.strip()
+                        age = int(age_txt) if age_txt.isdigit() else None
+
+                    # Piyasa Değeri
+                    mv_cell = row.select_one('td.rechts.hauptlink')
+                    market_value = mv_cell.text.strip() if mv_cell else "0"
+
+                    players.append({
+                        'transfermarkt_id': p_id,
+                        'name': p_name,
+                        'position': position,
+                        'age': age,
+                        'market_value': market_value
+                    })
+                except:
+                    continue
+            return players
+        except Exception as e:
+            logger.error(f"PlayersScraper Error: {e}")
+            return []
