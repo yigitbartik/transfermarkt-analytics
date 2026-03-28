@@ -1,164 +1,221 @@
-import logging
-import re
-from config import LEAGUES
+import streamlit as st
+import pandas as pd
 from database.db import init_db, SessionLocal
 from database.models import League, Club, Player, Match
-from scraper.clubs import ClubsScraper
-from scraper.players import PlayersScraper
-from scraper.matches import MatchesScraper
+from sqlalchemy import func
+import plotly.express as px
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Veri çekme fonksiyonunu içeri aktarıyoruz. 
+try:
+    from run_scraper import run_scraper
+except ImportError:
+    run_scraper = None
 
-def parse_market_value(value_str):
-    """'€344.75m' veya '€1.31bn' gibi metinleri sayıya (float) çevirir"""
-    if not value_str or value_str in ["None", "0", "-", ""]:
-        return 0.0
-    try:
-        # Sadece rakam ve noktaları tut
-        number_part = re.sub(r'[^\d.]', '', str(value_str))
-        if not number_part:
-            return 0.0
-            
-        value = float(number_part)
-        
-        # Milyar (bn) ise 1000 ile çarp (Milyon bazında tutmak için)
-        if 'bn' in str(value_str).lower():
-            value *= 1000.0
-        
-        return value
-    except Exception as e:
-        logger.warning(f"Market value parsing error for '{value_str}': {e}")
-        return 0.0
+init_db()
 
-def initialize_leagues(db):
-    """Sistemdeki ligleri veritabanına tanımlar"""
-    try:
-        for code, league_info in LEAGUES.items():
-            existing = db.query(League).filter(League.code == code).first()
-            if not existing:
-                league = League(
-                    code=code,
-                    name=league_info["name"],
-                    country=league_info["country"],
-                    url_slug=league_info["url_slug"]
-                )
-                db.add(league)
-        db.commit()
-        logger.info("Leagues initialized successfully")
-    except Exception as e:
-        logger.error(f"Error initializing leagues: {e}")
-        db.rollback()
+st.set_page_config(page_title="Transfermarkt Analytics", layout="wide")
 
-def run_scraper():
-    """Ana veri çekme ve veritabanı kayıt motoru (Full Sürüm)"""
-    logger.info("Starting scraper...")
-    
-    init_db()
-    db = SessionLocal()
-    
-    # Scraper'ları hazırla
-    clubs_scraper = ClubsScraper()
-    players_scraper = PlayersScraper()
-    matches_scraper = MatchesScraper()
-    
-    try:
-        initialize_leagues(db)
-        
-        for code, league_info in LEAGUES.items():
-            logger.info(f"--- Processing league: {league_info['name']} ---")
-            
-            current_league = db.query(League).filter(League.code == code).first()
-            if not current_league:
-                continue
-            
+st.sidebar.title("📊 Transfermarkt Analytics")
+page = st.sidebar.radio("Navigation", ["Dashboard", "Clubs", "Players", "Matches", "Statistics"])
+
+# --- YENİ EKLENEN VERİ ÇEKME BUTONU ---
+st.sidebar.divider()
+if st.sidebar.button("🔄 Verileri Çek / Güncelle", use_container_width=True):
+    if run_scraper is not None:
+        with st.spinner("Transfermarkt'tan veriler çekiliyor... (Bu işlem uzun sürebilir)"):
             try:
-                # 1. KULÜPLERİ ÇEK
-                clubs_data = clubs_scraper.scrape_clubs(league_info["url_slug"], code)
-                
-                for club_info in clubs_data:
-                    if not club_info.get('name') or not club_info.get('transfermarkt_id'):
-                        continue
-                    
-                    # Kulüp kontrolü
-                    existing_club = db.query(Club).filter(
-                        (Club.transfermarkt_id == club_info['transfermarkt_id']) | 
-                        (Club.name == club_info['name'])
-                    ).first()
-                    
-                    market_val = parse_market_value(club_info.get('market_value', '0'))
-
-                    if not existing_club:
-                        existing_club = Club(
-                            transfermarkt_id=club_info['transfermarkt_id'],
-                            name=club_info['name'],
-                            league_id=current_league.id,
-                            market_value=market_val,
-                            country=league_info['country']
-                        )
-                        db.add(existing_club)
-                        db.flush() # ID'nin oluşması için (Oyuncular için gerekli)
-                    else:
-                        existing_club.market_value = market_val
-                    
-                    # 2. OYUNCULARI ÇEK (Her kulüp için)
-                    players_data = players_scraper.scrape_players(club_info['transfermarkt_id'])
-                    for p_info in players_data:
-                        # Oyuncu daha önce bu kulübe eklenmiş mi?
-                        existing_player = db.query(Player).filter(
-                            Player.name == p_info['name'], 
-                            Player.club_id == existing_club.id
-                        ).first()
-                        
-                        p_market_val = parse_market_value(p_info.get('market_value', '0'))
-                        
-                        if not existing_player:
-                            new_player = Player(
-                                name=p_info['name'],
-                                position=p_info.get('position'),
-                                age=p_info.get('age'),
-                                jersey_number=p_info.get('jersey_number'),
-                                market_value=p_market_val,
-                                club_id=existing_club.id
-                            )
-                            db.add(new_player)
-                        else:
-                            existing_player.market_value = p_market_val
-
-                # 3. MAÇLARI ÇEK
-                matches_data = matches_scraper.scrape_matches(code, league_info["url_slug"])
-                for m_info in matches_data:
-                    # Maçın zaten var olup olmadığını kontrol et
-                    existing_match = db.query(Match).filter(Match.transfermarkt_id == m_info['transfermarkt_id']).first()
-                    
-                    if not existing_match:
-                        # Ev sahibi ve Deplasman kulüplerini bizim DB'den bul (Eşleştirme)
-                        home_club = db.query(Club).filter(Club.transfermarkt_id == m_info['home_club_id']).first()
-                        away_club = db.query(Club).filter(Club.transfermarkt_id == m_info['away_club_id']).first()
-                        
-                        if home_club and away_club:
-                            new_match = Match(
-                                transfermarkt_id=m_info['transfermarkt_id'],
-                                home_club_id=home_club.id,
-                                away_club_id=away_club.id,
-                                home_goals=m_info['home_goals'],
-                                away_goals=m_info['away_goals'],
-                                status=m_info['status'],
-                                league_id=current_league.id
-                            )
-                            db.add(new_match)
-                
-                db.commit() # Tüm lig verisini tek seferde onayla
-                logger.info(f"Success: {league_info['name']} (Clubs/Players/Matches saved)")
-                
+                run_scraper()  
+                st.sidebar.success("Veriler başarıyla çekildi ve veritabanına eklendi!")
+                st.rerun() 
             except Exception as e:
-                logger.error(f"Error in {league_info['name']}: {e}")
-                db.rollback()
-                continue
-        
-        logger.info("Scraper process finished successfully!")
-    finally:
-        db.close()
+                st.sidebar.error(f"Veri çekilirken bir hata oluştu: {e}")
+    else:
+        st.sidebar.error("Veri çekme dosyası (run_scraper.py) bulunamadı! Lütfen dosya adını kontrol edin.")
+# --------------------------------------
 
-if __name__ == "__main__":
-    run_scraper()
+def get_db():
+    return SessionLocal()
+
+if page == "Dashboard":
+    st.title("⚽ Football Analytics Dashboard")
+    
+    db = get_db()
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        leagues_count = db.query(func.count(League.id)).scalar()
+        st.metric("Total Leagues", leagues_count or 0)
+    
+    with col2:
+        clubs_count = db.query(func.count(Club.id)).scalar()
+        st.metric("Total Clubs", clubs_count or 0)
+    
+    with col3:
+        players_count = db.query(func.count(Player.id)).scalar()
+        st.metric("Total Players", players_count or 0)
+    
+    with col4:
+        matches_count = db.query(func.count(Match.id)).scalar()
+        st.metric("Total Matches", matches_count or 0)
+    
+    st.divider()
+    
+    st.subheader("📋 Supported Leagues")
+    leagues = db.query(League).all()
+    if leagues:
+        league_data = [(l.code, l.name, l.country) for l in leagues]
+        df_leagues = pd.DataFrame(league_data, columns=["Code", "League Name", "Country"])
+        st.dataframe(df_leagues, width="stretch")
+    else:
+        st.info("No leagues found. Please run the scraper from the sidebar first.")
+    
+    db.close()
+
+elif page == "Clubs":
+    st.title("⚽ Clubs")
+    
+    db = get_db()
+    
+    leagues = db.query(League).all()
+    league_names = [l.name for l in leagues]
+    
+    if league_names:
+        selected_league = st.selectbox("Select League", league_names)
+        
+        if selected_league:
+            league = db.query(League).filter(League.name == selected_league).first()
+            clubs = db.query(Club).filter(Club.league_id == league.id).all()
+            
+            if clubs:
+                club_data = []
+                for club in clubs:
+                    club_data.append({
+                        "Name": club.name,
+                        "Country": club.country or "N/A",
+                        "Stadium": club.stadium or "N/A",
+                        "Market Value": club.market_value or 0,
+                        "Players": len(club.players) if club.players else 0
+                    })
+                
+                df_clubs = pd.DataFrame(club_data)
+                st.dataframe(df_clubs, width="stretch")
+            else:
+                st.info("No clubs found for this league.")
+    else:
+        st.info("No leagues found.")
+    
+    db.close()
+
+elif page == "Players":
+    st.title("👤 Players")
+    
+    db = get_db()
+    
+    clubs = db.query(Club).all()
+    club_names = [c.name for c in clubs]
+    
+    if club_names:
+        selected_club = st.selectbox("Select Club", club_names)
+        
+        if selected_club:
+            club = db.query(Club).filter(Club.name == selected_club).first()
+            players = db.query(Player).filter(Player.club_id == club.id).all()
+            
+            if players:
+                player_data = []
+                for player in players:
+                    player_data.append({
+                        "Name": player.name,
+                        "Position": player.position or "N/A",
+                        "Age": player.age or 0,
+                        "Jersey": player.jersey_number or 0,
+                        "Market Value": player.market_value or 0,
+                        "Height": player.height or "N/A"
+                    })
+                
+                df_players = pd.DataFrame(player_data)
+                st.dataframe(df_players, width="stretch")
+            else:
+                st.info("No players found for this club.")
+    else:
+        st.info("No clubs found.")
+    
+    db.close()
+
+elif page == "Matches":
+    st.title("🏟️ Matches")
+    
+    db = get_db()
+    
+    leagues = db.query(League).all()
+    league_names = [l.name for l in leagues]
+    
+    if league_names:
+        selected_league = st.selectbox("Select League", league_names)
+        
+        if selected_league:
+            league = db.query(League).filter(League.name == selected_league).first()
+            matches = db.query(Match).filter(Match.league_id == league.id).all()
+            
+            if matches:
+                match_data = []
+                for match in matches:
+                    match_data.append({
+                        "Date": match.match_date or "N/A",
+                        "Time": match.match_time or "N/A",
+                        "Home": match.home_club.name if match.home_club else "N/A",
+                        "Away": match.away_club.name if match.away_club else "N/A",
+                        "Score": f"{match.home_goals or '-'} vs {match.away_goals or '-'}",
+                        "Status": match.status or "N/A",
+                        "Attendance": match.attendance or 0
+                    })
+                
+                df_matches = pd.DataFrame(match_data)
+                st.dataframe(df_matches, width="stretch")
+            else:
+                st.info("No matches found for this league.")
+    else:
+        st.info("No leagues found.")
+    
+    db.close()
+
+elif page == "Statistics":
+    st.title("📈 Statistics")
+    
+    db = get_db()
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Clubs by League")
+        clubs_by_league = db.query(League.name, func.count(Club.id).label("count"))\
+            .select_from(League)\
+            .join(Club)\
+            .group_by(League.name)\
+            .all()
+            
+        if clubs_by_league:
+            df = pd.DataFrame(clubs_by_league, columns=["League", "Count"])
+            fig = px.bar(df, x="League", y="Count", title="Number of Clubs per League")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No data available")
+    
+    with col2:
+        st.subheader("Players by League")
+        players_by_league = db.query(League.name, func.count(Player.id).label("count"))\
+            .select_from(League)\
+            .join(Club)\
+            .join(Player)\
+            .group_by(League.name)\
+            .all()
+            
+        if players_by_league:
+            df = pd.DataFrame(players_by_league, columns=["League", "Count"])
+            fig = px.pie(df, names="League", values="Count", title="Player Distribution")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No data available")
+    
+    db.close()
