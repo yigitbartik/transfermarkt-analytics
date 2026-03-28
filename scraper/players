@@ -1,0 +1,81 @@
+import requests
+from bs4 import BeautifulSoup
+from config import BASE_URL, REQUEST_TIMEOUT, USER_AGENT
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class PlayersScraper:
+    def __init__(self):
+        self.base_url = BASE_URL
+        self.headers = {"User-Agent": USER_AGENT}
+        self.timeout = REQUEST_TIMEOUT
+    
+    def scrape_players(self, club_id):
+        """Scrape players from a club"""
+        try:
+            url = f"{self.base_url}/verein/{club_id}/spielerliste"
+            logger.info(f"Scraping players from {url}")
+            
+            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            players = []
+            
+            player_rows = soup.find_all('tr')
+            
+            for row in player_rows:
+                try:
+                    player_data = {
+                        'transfermarkt_id': None,
+                        'name': None,
+                        'position': None,
+                        'date_of_birth': None,
+                        'age': None,
+                        'jersey_number': None,
+                        'height': None,
+                        'weight': None,
+                        'market_value': None,
+                        'photo_url': None
+                    }
+                    players.append(player_data)
+                except Exception as e:
+                    logger.error(f"Error parsing player row: {e}")
+                    continue
+            
+            logger.info(f"Successfully scraped {len(players)} players")
+            return players
+            
+        except Exception as e:
+            logger.error(f"Error scraping players: {e}")
+            return []
+    
+    def get_player_details(self, player_id):
+        """Get detailed information about a player"""
+        try:
+            url = f"{self.base_url}/spieler/{player_id}"
+            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            details = {
+                'transfermarkt_id': player_id,
+                'name': None,
+                'position': None,
+                'country': None,
+                'date_of_birth': None,
+                'age': None,
+                'height': None,
+                'weight': None,
+                'market_value': None,
+                'photo_url': None
+            }
+            
+            return details
+            
+        except Exception as e:
+            logger.error(f"Error getting player details: {e}")
+            return None
