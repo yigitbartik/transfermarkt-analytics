@@ -17,8 +17,8 @@ class League(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    clubs = relationship("Club", back_populates="league")
-    matches = relationship("Match", back_populates="league")
+    clubs = relationship("Club", back_populates="league", cascade="all, delete-orphan")
+    matches = relationship("Match", back_populates="league", cascade="all, delete-orphan")
 
 class Club(Base):
     __tablename__ = "clubs"
@@ -37,9 +37,9 @@ class Club(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     league = relationship("League", back_populates="clubs")
-    players = relationship("Player", back_populates="club")
-    home_matches = relationship("Match", back_populates="home_club", foreign_keys="Match.home_club_id")
-    away_matches = relationship("Match", back_populates="away_club", foreign_keys="Match.away_club_id")
+    players = relationship("Player", back_populates="club", cascade="all, delete-orphan")
+    home_matches = relationship("Match", back_populates="home_club", foreign_keys="Match.home_club_id", cascade="all, delete-orphan")
+    away_matches = relationship("Match", back_populates="away_club", foreign_keys="Match.away_club_id", cascade="all, delete-orphan")
 
 class Player(Base):
     __tablename__ = "players"

@@ -24,19 +24,19 @@ if page == "Dashboard":
     
     with col1:
         leagues_count = db.query(func.count(League.id)).scalar()
-        st.metric("Total Leagues", leagues_count)
+        st.metric("Total Leagues", leagues_count or 0)
     
     with col2:
         clubs_count = db.query(func.count(Club.id)).scalar()
-        st.metric("Total Clubs", clubs_count)
+        st.metric("Total Clubs", clubs_count or 0)
     
     with col3:
         players_count = db.query(func.count(Player.id)).scalar()
-        st.metric("Total Players", players_count)
+        st.metric("Total Players", players_count or 0)
     
     with col4:
         matches_count = db.query(func.count(Match.id)).scalar()
-        st.metric("Total Matches", matches_count)
+        st.metric("Total Matches", matches_count or 0)
     
     st.divider()
     
@@ -58,27 +58,31 @@ elif page == "Clubs":
     
     leagues = db.query(League).all()
     league_names = [l.name for l in leagues]
-    selected_league = st.selectbox("Select League", league_names)
     
-    if selected_league:
-        league = db.query(League).filter(League.name == selected_league).first()
-        clubs = db.query(Club).filter(Club.league_id == league.id).all()
+    if league_names:
+        selected_league = st.selectbox("Select League", league_names)
         
-        if clubs:
-            club_data = []
-            for club in clubs:
-                club_data.append({
-                    "Name": club.name,
-                    "Country": club.country,
-                    "Stadium": club.stadium,
-                    "Market Value": club.market_value,
-                    "Players": len(club.players)
-                })
+        if selected_league:
+            league = db.query(League).filter(League.name == selected_league).first()
+            clubs = db.query(Club).filter(Club.league_id == league.id).all()
             
-            df_clubs = pd.DataFrame(club_data)
-            st.dataframe(df_clubs, use_container_width=True)
-        else:
-            st.info("No clubs found for this league.")
+            if clubs:
+                club_data = []
+                for club in clubs:
+                    club_data.append({
+                        "Name": club.name,
+                        "Country": club.country or "N/A",
+                        "Stadium": club.stadium or "N/A",
+                        "Market Value": club.market_value or 0,
+                        "Players": len(club.players) if club.players else 0
+                    })
+                
+                df_clubs = pd.DataFrame(club_data)
+                st.dataframe(df_clubs, use_container_width=True)
+            else:
+                st.info("No clubs found for this league.")
+    else:
+        st.info("No leagues found.")
     
     db.close()
 
@@ -102,11 +106,11 @@ elif page == "Players":
                 for player in players:
                     player_data.append({
                         "Name": player.name,
-                        "Position": player.position,
-                        "Age": player.age,
-                        "Jersey": player.jersey_number,
-                        "Market Value": player.market_value,
-                        "Height": player.height
+                        "Position": player.position or "N/A",
+                        "Age": player.age or 0,
+                        "Jersey": player.jersey_number or 0,
+                        "Market Value": player.market_value or 0,
+                        "Height": player.height or "N/A"
                     })
                 
                 df_players = pd.DataFrame(player_data)
@@ -125,29 +129,33 @@ elif page == "Matches":
     
     leagues = db.query(League).all()
     league_names = [l.name for l in leagues]
-    selected_league = st.selectbox("Select League", league_names)
     
-    if selected_league:
-        league = db.query(League).filter(League.name == selected_league).first()
-        matches = db.query(Match).filter(Match.league_id == league.id).all()
+    if league_names:
+        selected_league = st.selectbox("Select League", league_names)
         
-        if matches:
-            match_data = []
-            for match in matches:
-                match_data.append({
-                    "Date": match.match_date,
-                    "Time": match.match_time,
-                    "Home": match.home_club.name if match.home_club else "N/A",
-                    "Away": match.away_club.name if match.away_club else "N/A",
-                    "Score": f"{match.home_goals or '-'} vs {match.away_goals or '-'}",
-                    "Status": match.status,
-                    "Attendance": match.attendance
-                })
+        if selected_league:
+            league = db.query(League).filter(League.name == selected_league).first()
+            matches = db.query(Match).filter(Match.league_id == league.id).all()
             
-            df_matches = pd.DataFrame(match_data)
-            st.dataframe(df_matches, use_container_width=True)
-        else:
-            st.info("No matches found for this league.")
+            if matches:
+                match_data = []
+                for match in matches:
+                    match_data.append({
+                        "Date": match.match_date or "N/A",
+                        "Time": match.match_time or "N/A",
+                        "Home": match.home_club.name if match.home_club else "N/A",
+                        "Away": match.away_club.name if match.away_club else "N/A",
+                        "Score": f"{match.home_goals or '-'} vs {match.away_goals or '-'}",
+                        "Status": match.status or "N/A",
+                        "Attendance": match.attendance or 0
+                    })
+                
+                df_matches = pd.DataFrame(match_data)
+                st.dataframe(df_matches, use_container_width=True)
+            else:
+                st.info("No matches found for this league.")
+    else:
+        st.info("No leagues found.")
     
     db.close()
 
@@ -165,6 +173,8 @@ elif page == "Statistics":
             df = pd.DataFrame(clubs_by_league, columns=["League", "Count"])
             fig = px.bar(df, x="League", y="Count", title="Number of Clubs per League")
             st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No data available")
     
     with col2:
         st.subheader("Players by League")
@@ -173,5 +183,7 @@ elif page == "Statistics":
             df = pd.DataFrame(players_by_league, columns=["League", "Count"])
             fig = px.pie(df, names="League", values="Count", title="Player Distribution")
             st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No data available")
     
     db.close()
