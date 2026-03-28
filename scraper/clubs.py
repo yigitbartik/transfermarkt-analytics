@@ -15,7 +15,7 @@ class ClubsScraper:
     def scrape_clubs(self, league_slug, league_code):
         """Scrape clubs from a league"""
         try:
-            # İŞTE DÜZELTİLEN SATIR: league_slug ve league_code yer değiştirdi!
+            # Doğru URL sıralaması
             url = f"{self.base_url}/{league_slug}/startseite/wettbewerb/{league_code}"
             logger.info(f"Scraping clubs from {url}")
             
@@ -25,7 +25,13 @@ class ClubsScraper:
             soup = BeautifulSoup(response.content, 'html.parser')
             clubs = []
             
-            club_rows = soup.find_all('tr', class_='hover-action')
+            # Transfermarkt'ın ana tablosunu bulacak şekilde HTML okuyucu güncellendi
+            table = soup.find('table', class_='items')
+            
+            if table and table.find('tbody'):
+                club_rows = table.find('tbody').find_all('tr', recursive=False)
+            else:
+                club_rows = soup.find_all('tr', class_=['odd', 'even'])
             
             for row in club_rows:
                 try:

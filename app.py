@@ -5,7 +5,7 @@ from database.models import League, Club, Player, Match
 from sqlalchemy import func
 import plotly.express as px
 
-# İŞTE BURAYI DÜZELTTİK: Dosyanın gerçek adı "run_scraper.py"
+# Veri çekme fonksiyonunu içeri aktarıyoruz. 
 try:
     from run_scraper import run_scraper
 except ImportError:
@@ -24,9 +24,9 @@ if st.sidebar.button("🔄 Verileri Çek / Güncelle", use_container_width=True)
     if run_scraper is not None:
         with st.spinner("Transfermarkt'tan veriler çekiliyor... (Bu işlem uzun sürebilir)"):
             try:
-                run_scraper()  # Asıl veri çekme fonksiyonunu çalıştırır
+                run_scraper()  
                 st.sidebar.success("Veriler başarıyla çekildi ve veritabanına eklendi!")
-                st.rerun() # Sayfayı yenileyip grafikleri günceller
+                st.rerun() 
             except Exception as e:
                 st.sidebar.error(f"Veri çekilirken bir hata oluştu: {e}")
     else:
@@ -66,7 +66,7 @@ if page == "Dashboard":
     if leagues:
         league_data = [(l.code, l.name, l.country) for l in leagues]
         df_leagues = pd.DataFrame(league_data, columns=["Code", "League Name", "Country"])
-        st.dataframe(df_leagues, use_container_width=True)
+        st.dataframe(df_leagues, width="stretch")
     else:
         st.info("No leagues found. Please run the scraper from the sidebar first.")
     
@@ -99,7 +99,7 @@ elif page == "Clubs":
                     })
                 
                 df_clubs = pd.DataFrame(club_data)
-                st.dataframe(df_clubs, use_container_width=True)
+                st.dataframe(df_clubs, width="stretch")
             else:
                 st.info("No clubs found for this league.")
     else:
@@ -135,7 +135,7 @@ elif page == "Players":
                     })
                 
                 df_players = pd.DataFrame(player_data)
-                st.dataframe(df_players, use_container_width=True)
+                st.dataframe(df_players, width="stretch")
             else:
                 st.info("No players found for this club.")
     else:
@@ -172,7 +172,7 @@ elif page == "Matches":
                     })
                 
                 df_matches = pd.DataFrame(match_data)
-                st.dataframe(df_matches, use_container_width=True)
+                st.dataframe(df_matches, width="stretch")
             else:
                 st.info("No matches found for this league.")
     else:
@@ -189,7 +189,6 @@ elif page == "Statistics":
     
     with col1:
         st.subheader("Clubs by League")
-        # HATA DÜZELTİLDİ: select_from(League) eklendi
         clubs_by_league = db.query(League.name, func.count(Club.id).label("count"))\
             .select_from(League)\
             .join(Club)\
@@ -205,7 +204,6 @@ elif page == "Statistics":
     
     with col2:
         st.subheader("Players by League")
-        # HATA DÜZELTİLDİ: select_from(League) ve doğru join sırası eklendi
         players_by_league = db.query(League.name, func.count(Player.id).label("count"))\
             .select_from(League)\
             .join(Club)\
