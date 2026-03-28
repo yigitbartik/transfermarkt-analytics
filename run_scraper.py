@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 from config import LEAGUES
 from database.db import init_db, SessionLocal
 from database.models import League, Club, Player, Match
@@ -7,22 +8,23 @@ from scraper.clubs import ClubsScraper
 from scraper.players import PlayersScraper
 from scraper.matches import MatchesScraper
 
+# Loglama ayarları
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def parse_market_value(value_str):
-    """'€344.75m' veya '€1.31bn' gibi metinleri sayıya (float) çevirir"""
+    """'€344.75m' veya '€1.31bn' metinlerini float sayıya çevirir"""
     if not value_str or value_str in ["None", "0", "-", ""]:
         return 0.0
     try:
-        # Sadece rakam ve noktaları tut
+        # Sayı ve nokta dışındaki her şeyi (euro sembolü, harfler) temizle
         number_part = re.sub(r'[^\d.]', '', str(value_str))
         if not number_part:
             return 0.0
             
         value = float(number_part)
         
-        # Milyar (bn) ise 1000 ile çarp (Milyon bazında tutmak için)
+        # Eğer milyar (bn) ise 1000 ile çarpıp milyon bazına getir
         if 'bn' in str(value_str).lower():
             value *= 1000.0
         
@@ -32,7 +34,7 @@ def parse_market_value(value_str):
         return 0.0
 
 def initialize_leagues(db):
-    """Sistemdeki ligleri veritabanına tanımlar"""
+    """Config dosyasındaki ligleri veritabanına ekler"""
     try:
         for code, league_info in LEAGUES.items():
             existing = db.query(League).filter(League.code == code).first()
@@ -51,13 +53,13 @@ def initialize_leagues(db):
         db.rollback()
 
 def run_scraper():
-    """Ana veri çekme ve veritabanı kayıt motoru (Full Sürüm)"""
-    logger.info("Starting scraper...")
+    """Tüm veri çekme sürecini başlatan ana fonksiyon"""
+    logger.info("Starting scraper engine...")
     
     init_db()
     db = SessionLocal()
     
-    # Scraper'ları hazırla
+    # Scraper sınıflarını başlat
     clubs_scraper = ClubsScraper()
     players_scraper = PlayersScraper()
     matches_scraper = MatchesScraper()
@@ -80,7 +82,7 @@ def run_scraper():
                     if not club_info.get('name') or not club_info.get('transfermarkt_id'):
                         continue
                     
-                    # Kulüp kontrolü
+                    # Kulüp veritabanında var mı?
                     existing_club = db.query(Club).filter(
                         (Club.transfermarkt_id == club_info['transfermarkt_id']) | 
                         (Club.name == club_info['name'])
@@ -97,42 +99,48 @@ def run_scraper():
                             country=league_info['country']
                         )
                         db.add(existing_club)
-                        db.flush() # ID'nin oluşması için (Oyuncular için gerekli)
+                        db.flush() # Oyuncular için ID oluşmasını sağlar
                     else:
                         existing_club.market_value = market_val
                     
-                    # 2. OYUNCULARI ÇEK (Her kulüp için)
+                    # 2. OYUNCULARI ÇEK (Kulüp bazlı)
                     players_data = players_scraper.scrape_players(club_info['transfermarkt_id'])
                     for p_info in players_data:
-                        # Oyuncu daha önce bu kulübe eklenmiş mi?
+                        if not p_info.get('transfermarkt_id'):
+                            continue
+                            
                         existing_player = db.query(Player).filter(
-                            Player.name == p_info['name'], 
-                            Player.club_id == existing_club.id
+                            Player.transfermarkt_id == p_info['transfermarkt_id']
                         ).first()
                         
                         p_market_val = parse_market_value(p_info.get('market_value', '0'))
                         
                         if not existing_player:
                             new_player = Player(
+                                transfermarkt_id=p_info['transfermarkt_id'],
                                 name=p_info['name'],
                                 position=p_info.get('position'),
                                 age=p_info.get('age'),
-                                jersey_number=p_info.get('jersey_number'),
                                 market_value=p_market_val,
                                 club_id=existing_club.id
                             )
                             db.add(new_player)
                         else:
                             existing_player.market_value = p_market_val
+                            existing_player.club_id = existing_club.id
+                    
+                    # Transfermarkt bot korumasına yakalanmamak için kısa bekleme
+                    time.sleep(0.3)
 
                 # 3. MAÇLARI ÇEK
                 matches_data = matches_scraper.scrape_matches(code, league_info["url_slug"])
                 for m_info in matches_data:
-                    # Maçın zaten var olup olmadığını kontrol et
+                    if not m_info.get('transfermarkt_id'):
+                        continue
+
                     existing_match = db.query(Match).filter(Match.transfermarkt_id == m_info['transfermarkt_id']).first()
                     
                     if not existing_match:
-                        # Ev sahibi ve Deplasman kulüplerini bizim DB'den bul (Eşleştirme)
                         home_club = db.query(Club).filter(Club.transfermarkt_id == m_info['home_club_id']).first()
                         away_club = db.query(Club).filter(Club.transfermarkt_id == m_info['away_club_id']).first()
                         
@@ -148,15 +156,15 @@ def run_scraper():
                             )
                             db.add(new_match)
                 
-                db.commit() # Tüm lig verisini tek seferde onayla
-                logger.info(f"Success: {league_info['name']} (Clubs/Players/Matches saved)")
+                db.commit() # Lig bittiğinde kaydet
+                logger.info(f"Saved all data for league: {league_info['name']}")
                 
             except Exception as e:
-                logger.error(f"Error in {league_info['name']}: {e}")
+                logger.error(f"Error in league {league_info['name']}: {e}")
                 db.rollback()
                 continue
         
-        logger.info("Scraper process finished successfully!")
+        logger.info("Full scraping process finished successfully!")
     finally:
         db.close()
 
