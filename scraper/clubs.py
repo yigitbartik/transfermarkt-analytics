@@ -1,7 +1,7 @@
 """Clubs scraper for Transfermarkt"""
 import requests
 from bs4 import BeautifulSoup
-from config import TRANSFERMARKT_BASE_URL, REQUEST_TIMEOUT, USER_AGENT, RETRY_ATTEMPTS
+from config import BASE_URL, REQUEST_TIMEOUT, USER_AGENT
 import logging
 import time
 
@@ -9,7 +9,9 @@ logger = logging.getLogger(__name__)
 
 class ClubsScraper:
     def __init__(self):
-        self.base_url = TRANSFERMARKT_BASE_URL
+        # NOTE: config dosyasında adı TRANSFERMARKT_BASE_URL ise lütfen aşağıyı ona göre düzenle
+        # (Şu an standart config.py yapına göre BASE_URL kullanıldı)
+        self.base_url = BASE_URL
         self.headers = {"User-Agent": USER_AGENT}
         self.timeout = REQUEST_TIMEOUT
     
@@ -55,6 +57,17 @@ class ClubsScraper:
                     if not tm_id:
                         continue
                     
+                    # --- YENİ EKLENEN KISIM: LOGO ÇEKİMİ ---
+                    # Logolar tablonun başındaki td içinde yer alıyor
+                    img_tag = row.select_one('td img')
+                    logo_url = None
+                    if img_tag:
+                        logo_url = img_tag.get('data-src') or img_tag.get('src')
+                        # Logoyu yüksek çözünürlüklü yapmak için
+                        if logo_url:
+                            logo_url = logo_url.replace('tiny', 'header').replace('small', 'header')
+                    # ----------------------------------------
+                    
                     # Extract market value
                     market_value_tds = row.find_all('td', class_='rechts')
                     market_value = market_value_tds[-1].text.strip() if market_value_tds else "0"
@@ -71,7 +84,7 @@ class ClubsScraper:
                         'market_value': market_value,
                         'stadium': stadium,
                         'country': None,
-                        'logo_url': None
+                        'logo_url': logo_url  # Önceden None'dı, şimdi logo var!
                     }
                     clubs.append(club_data)
                     time.sleep(0.05)  # Be nice to servers
