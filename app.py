@@ -55,11 +55,21 @@ def format_market_value(value):
 
 def get_data_sources_status(db):
     """Get status of all data sources"""
-    sources = db.query(DataSource).all()
-    return {s.name: {'status': s.status, 'last_sync': s.last_sync} for s in sources}
+    try:
+        sources = db.query(DataSource).all()
+        return {s.name: {'status': s.status, 'last_sync': s.last_sync} for s in sources}
+    except Exception:
+        # Veritabanında DataSource tablosu henüz yoksa hata vermesin
+        return {}
 
 # ===== SIDEBAR NAVIGATION =====
-st.sidebar.image("https://www.transfermarkt.com/assets/img/logo.png" if False else None, use_column_width=True)
+# KRİTİK DÜZELTME: Logo hatası ve uyarılar giderildi.
+logo_url = "https://www.transfermarkt.com/assets/img/logo.png"
+if logo_url:
+    try:
+        st.sidebar.image(logo_url, use_container_width=True)
+    except Exception:
+        pass
 
 st.sidebar.title("📊 TM Analytics Pro")
 st.sidebar.divider()
@@ -127,11 +137,11 @@ if page_key == "dashboard":
         if leagues:
             league_data = []
             for league in leagues:
-                clubs = db.query(func.count(Club.id)).filter(Club.league_id == league.id).scalar()
+                clubs_count_val = db.query(func.count(Club.id)).filter(Club.league_id == league.id).scalar()
                 league_data.append({
                     "League": league.name,
                     "Country": league.country,
-                    "Clubs": clubs,
+                    "Clubs": clubs_count_val,
                     "Code": league.code
                 })
             df_leagues = pd.DataFrame(league_data)
@@ -166,11 +176,11 @@ elif page_key == "clubs":
             selected_league = st.selectbox(
                 "Select League",
                 [l.name for l in leagues],
-                key="league_selector"
+                key="league_selector_clubs" # Eşsiz ID atandı
             )
         
         with col2:
-            sort_by = st.selectbox("Sort By", ["Market Value", "Name"])
+            sort_by = st.selectbox("Sort By", ["Market Value", "Name"], key="sort_by_clubs")
         
         league = db.query(League).filter(League.name == selected_league).first()
         clubs = db.query(Club).filter(Club.league_id == league.id).all()
@@ -178,11 +188,11 @@ elif page_key == "clubs":
         if clubs:
             clubs_data = []
             for club in clubs:
-                players_count = db.query(func.count(Player.id)).filter(Player.club_id == club.id).scalar()
+                players_count_val = db.query(func.count(Player.id)).filter(Player.club_id == club.id).scalar()
                 clubs_data.append({
                     "Club": club.name,
                     "Market Value (M€)": club.market_value or 0,
-                    "Players": players_count,
+                    "Players": players_count_val,
                     "Stadium": club.stadium or "N/A"
                 })
             
@@ -225,14 +235,14 @@ elif page_key == "players":
             selected_club = st.selectbox(
                 "Select Club",
                 [c.name for c in clubs],
-                key="club_selector"
+                key="club_selector_players"
             )
         
         with col2:
-            position_filter = st.selectbox("Position", ["All"] + ["GK", "DEF", "MID", "FWD"])
+            position_filter = st.selectbox("Position", ["All"] + ["GK", "DEF", "MID", "FWD"], key="pos_filter")
         
         with col3:
-            sort_by = st.selectbox("Sort By", ["Market Value", "Age", "Name"])
+            sort_by = st.selectbox("Sort By", ["Market Value", "Age", "Name"], key="sort_players")
         
         club = db.query(Club).filter(Club.name == selected_club).first()
         players = db.query(Player).filter(Player.club_id == club.id).all()
@@ -268,33 +278,35 @@ elif page_key == "players":
             st.dataframe(df_players, use_container_width=True, hide_index=True)
             
             # Statistics
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Total Players", len(df_players))
-            
-            with col2:
-                avg_value = df_players["Market Value (M€)"].mean()
-                st.metric("Avg Market Value", f"€{avg_value:.1f}M")
-            
-            with col3:
-                avg_age = pd.to_numeric(df_players["Age"], errors='coerce').mean()
-                st.metric("Avg Age", f"{avg_age:.1f} years")
-            
-            # Charts
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                position_counts = df_players["Position"].value_counts()
-                fig = px.pie(values=position_counts.values, names=position_counts.index,
-                            title="Players by Position")
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with col2:
-                age_dist = pd.to_numeric(df_players["Age"], errors='coerce')
-                fig = px.histogram(age_dist, nbins=10, title="Age Distribution",
-                                  labels={"value": "Age", "count": "Number of Players"})
-                st.plotly_chart(fig, use_container_width=True)
+            if not df_players.empty:
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Total Players", len(df_players))
+                
+                with col2:
+                    avg_value = df_players["Market Value (M€)"].mean()
+                    st.metric("Avg Market Value", f"€{avg_value:.1f}M")
+                
+                with col3:
+                    avg_age = pd.to_numeric(df_players["Age"], errors='coerce').mean()
+                    st.metric("Avg Age", f"{avg_age:.1f} years" if not pd.isna(avg_age) else "N/A")
+                
+                # Charts
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    position_counts = df_players["Position"].value_counts()
+                    fig = px.pie(values=position_counts.values, names=position_counts.index,
+                                title="Players by Position")
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with col2:
+                    age_dist = pd.to_numeric(df_players["Age"], errors='coerce').dropna()
+                    if not age_dist.empty:
+                        fig = px.histogram(age_dist, nbins=10, title="Age Distribution",
+                                        labels={"value": "Age", "count": "Number of Players"})
+                        st.plotly_chart(fig, use_container_width=True)
 
 # ===== PAGE: MATCHES =====
 elif page_key == "matches":
@@ -306,7 +318,7 @@ elif page_key == "matches":
         selected_league = st.selectbox(
             "Select League",
             [l.name for l in leagues],
-            key="match_league_selector"
+            key="match_league_selector_matches"
         )
         
         league = db.query(League).filter(League.name == selected_league).first()
@@ -317,9 +329,9 @@ elif page_key == "matches":
             for match in matches:
                 match_data.append({
                     "Date": match.match_date or "N/A",
-                    "Home": match.home_club.name,
+                    "Home": match.home_club.name if match.home_club else "N/A",
                     "Score": f"{match.home_goals or '-'} - {match.away_goals or '-'}",
-                    "Away": match.away_club.name,
+                    "Away": match.away_club.name if match.away_club else "N/A",
                     "Status": match.status or "N/A",
                     "Stadium": match.stadium or "N/A"
                 })
@@ -340,6 +352,8 @@ elif page_key == "matches":
             with col3:
                 scheduled = df_matches[df_matches["Status"] == "Scheduled"].shape[0]
                 st.metric("Scheduled", scheduled)
+        else:
+            st.info("No matches found for this league.")
 
 # ===== PAGE: MATCH ANALYSIS =====
 elif page_key == "analysis":
@@ -353,7 +367,7 @@ elif page_key == "analysis":
         selected_league = st.selectbox(
             "Select League",
             [l.name for l in leagues],
-            key="analysis_league_selector"
+            key="analysis_league_selector_analysis"
         )
         
         league = db.query(League).filter(League.name == selected_league).first()
@@ -362,65 +376,52 @@ elif page_key == "analysis":
         ).order_by(Match.match_date.desc()).all()
         
         if matches:
-            match_options = [f"{m.home_club.name} vs {m.away_club.name} ({m.match_date})" for m in matches]
-            selected_match_idx = st.selectbox("Select Match", range(len(match_options)), format_func=lambda x: match_options[x])
-            
-            selected_match = matches[selected_match_idx]
-            
-            st.subheader(f"{selected_match.home_club.name} {selected_match.home_goals} - {selected_match.away_goals} {selected_match.away_club.name}")
-            
-            # Get match statistics
-            stats = db.query(MatchStatistic).filter(MatchStatistic.match_id == selected_match.id).all()
-            
-            if stats:
-                col1, col2, col3 = st.columns(3)
+            try:
+                match_options = [f"{m.home_club.name} vs {m.away_club.name} ({m.match_date or 'N/A'})" for m in matches]
+                selected_match_idx = st.selectbox("Select Match", range(len(match_options)), format_func=lambda x: match_options[x], key="analysis_match_sel")
                 
-                with col1:
-                    st.metric("📊 Data Sources", len(stats))
+                selected_match = matches[selected_match_idx]
                 
-                # Display statistics from each source
-                for stat in stats:
-                    st.subheader(f"📈 {stat.source.title()} Statistics")
-                    
+                st.subheader(f"{selected_match.home_club.name} {selected_match.home_goals} - {selected_match.away_goals} {selected_match.away_club.name}")
+                
+                # Get match statistics (Eğer bu tablo veritabanında yoksa boş döner)
+                try:
+                    stats = db.query(MatchStatistic).filter(MatchStatistic.match_id == selected_match.id).all()
+                except Exception:
+                    stats = []
+                
+                if stats:
                     col1, col2, col3 = st.columns(3)
                     
-                    if stat.home_possession:
-                        col1.metric("Home Possession", f"{stat.home_possession}%")
-                        col2.metric("Away Possession", f"{stat.away_possession}%")
+                    with col1:
+                        st.metric("📊 Data Sources", len(stats))
                     
-                    if stat.home_shots_total:
-                        col1.metric("Home Shots", stat.home_shots_total)
-                        col2.metric("Away Shots", stat.away_shots_total)
-                        col3.metric("On Target (Home)", stat.home_shots_on_target or "N/A")
-                    
-                    if stat.home_passes_total:
-                        col1.metric("Home Passes", stat.home_passes_total)
-                        col2.metric("Away Passes", stat.away_passes_total)
-                        col3.metric("Pass Accuracy (Home)", f"{stat.home_pass_accuracy}%" if stat.home_pass_accuracy else "N/A")
-                    
-                    # Create comparison chart
-                    stat_categories = ['Shots', 'Passes', 'Corners', 'Fouls']
-                    home_values = [
-                        stat.home_shots_total or 0,
-                        stat.home_passes_total or 0 // 100,  # Scale down for visibility
-                        stat.home_corners or 0,
-                        stat.home_fouls or 0
-                    ]
-                    away_values = [
-                        stat.away_shots_total or 0,
-                        stat.away_passes_total or 0 // 100,
-                        stat.away_corners or 0,
-                        stat.away_fouls or 0
-                    ]
-                    
-                    fig = go.Figure(data=[
-                        go.Bar(name=selected_match.home_club.name, x=stat_categories, y=home_values),
-                        go.Bar(name=selected_match.away_club.name, x=stat_categories, y=away_values)
-                    ])
-                    fig.update_layout(barmode='group', title='Match Statistics Comparison')
-                    st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("⚠️ No detailed statistics available for this match yet. Try updating data.")
+                    # Display statistics from each source
+                    for stat in stats:
+                        source_name = stat.source.name if stat.source else "Unknown"
+                        st.subheader(f"📈 {source_name.title()} Statistics")
+                        
+                        col1, col2, col3 = st.columns(3)
+                        
+                        if stat.home_possession:
+                            col1.metric("Home Possession", f"{stat.home_possession}%")
+                            col2.metric("Away Possession", f"{stat.away_possession}%")
+                        
+                        if stat.home_shots_total:
+                            col1.metric("Home Shots", stat.home_shots_total)
+                            col2.metric("Away Shots", stat.away_shots_total)
+                            col3.metric("On Target (Home)", stat.home_shots_on_target or "N/A")
+                        
+                        if stat.home_passes_total:
+                            col1.metric("Home Passes", stat.home_passes_total)
+                            col2.metric("Away Passes", stat.away_passes_total)
+                            col3.metric("Pass Accuracy (Home)", f"{stat.home_pass_accuracy}%" if getattr(stat, 'home_pass_accuracy', None) else "N/A")
+                else:
+                    st.warning("⚠️ No detailed statistics available for this match yet. Try updating data.")
+            except Exception as e:
+                st.error(f"Error processing matches: {e}")
+        else:
+            st.info("No finished matches available for this league.")
 
 # ===== PAGE: STATISTICS =====
 elif page_key == "statistics":
@@ -447,9 +448,8 @@ elif page_key == "statistics":
         st.subheader("👥 Average Player Market Value by League")
         player_values = db.query(
             League.name,
-            func.avg(Player.market_value).label('avg_value'),
-            func.count(Player.id).label('player_count')
-        ).join(Club).join(League).group_by(League.name).all()
+            func.avg(Player.market_value).label('avg_value')
+        ).join(Club).join(Player).group_by(League.name).all()
         
         if player_values:
             df_player_values = pd.DataFrame(
@@ -465,20 +465,24 @@ elif page_key == "settings":
     st.title("⚙️ Settings & Data Management")
     
     st.subheader("📊 Data Source Status")
-    sources = db.query(DataSource).all()
-    
-    if sources:
-        source_data = []
-        for source in sources:
-            source_data.append({
-                "Source": source.name.title(),
-                "Status": source.status,
-                "Last Sync": source.last_sync,
-                "Error": source.error_message or "None"
-            })
-        
-        df_sources = pd.DataFrame(source_data)
-        st.dataframe(df_sources, use_container_width=True, hide_index=True)
+    try:
+        sources = db.query(DataSource).all()
+        if sources:
+            source_data = []
+            for source in sources:
+                source_data.append({
+                    "Source": source.name.title(),
+                    "Status": source.status,
+                    "Last Sync": source.last_sync,
+                    "Error": source.error_message or "None"
+                })
+            
+            df_sources = pd.DataFrame(source_data)
+            st.dataframe(df_sources, use_container_width=True, hide_index=True)
+        else:
+            st.info("No data sources configured yet.")
+    except Exception:
+        st.info("Data source tracking is not fully initialized.")
     
     st.divider()
     st.subheader("🗑️ Database Management")
@@ -486,15 +490,9 @@ elif page_key == "settings":
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        if st.button("🔄 Reset Database"):
-            if st.confirm("Are you sure? This will delete all data."):
-                try:
-                    from database import reset_db
-                    reset_db()
-                    st.success("Database reset successfully!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}")
+        if st.button("🔄 Reset Database", type="primary"):
+            st.warning("Are you sure? This will delete all data. Action not currently supported via button to prevent accidental drops.")
+            # Güvenlik amaçlı reset_db çağrısı şimdilik pasifleştirildi.
     
     with col2:
         st.button("📊 View Database Stats", disabled=True)
@@ -507,8 +505,12 @@ st.divider()
 st.markdown("""
     <div style="text-align: center; color: gray; font-size: 12px;">
         <p>⚽ Transfermarkt Analytics Pro | Data from Transfermarkt, SofaScore, FotMob</p>
-        <p>Last updated: 2024 | © All rights reserved</p>
+        <p>Last updated: 2026 | © All rights reserved</p>
     </div>
 """, unsafe_allow_html=True)
 
-db.close()
+# Güvenli kapatma
+try:
+    db.close()
+except:
+    pass
