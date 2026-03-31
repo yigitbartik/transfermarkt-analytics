@@ -65,7 +65,8 @@ def get_data_sources_status(db):
 logo_url = "https://www.transfermarkt.com/assets/img/logo.png"
 if logo_url:
     try:
-        st.sidebar.image(logo_url, use_container_width=True)
+        # UYARI GİDERİLDİ: use_container_width yerine width="stretch" kullanıldı
+        st.sidebar.image(logo_url, width="stretch")
     except Exception:
         pass
 
@@ -98,7 +99,8 @@ page_key = pages[current_page]
 
 # Scraper button
 st.sidebar.divider()
-if st.sidebar.button("🔄 Update Data (Refresh)", use_container_width=True):
+# UYARI GİDERİLDİ: use_container_width yerine width="stretch" kullanıldı
+if st.sidebar.button("🔄 Update Data (Refresh)", key="main_update_btn", width="stretch"):
     with st.spinner("Updating data from sources... (This may take 10-15 minutes)"):
         try:
             from run_scraper import run_scraper
@@ -142,7 +144,7 @@ if page_key == "dashboard":
                     "Code": league.code
                 })
             df_leagues = pd.DataFrame(league_data)
-            # Uyarıyı önlemek için width="stretch" kullanıldı
+            # UYARI GİDERİLDİ
             st.dataframe(df_leagues, width="stretch", hide_index=True)
     
     with col2:
@@ -157,10 +159,10 @@ if page_key == "dashboard":
                 [(l[0], l[1] or 0) for l in league_values],
                 columns=["League", "Market Value (Millions)"]
             )
-            # HATA BURADAYDI: colorscale -> color_continuous_scale
             fig = px.bar(df_values, x="League", y="Market Value (Millions)", 
                         color="Market Value (Millions)", color_continuous_scale="Viridis")
-            st.plotly_chart(fig, use_container_width=True)
+            # UYARI GİDERİLDİ
+            st.plotly_chart(fig, width="stretch")
 
 # ===== PAGE: CLUBS =====
 elif page_key == "clubs":
@@ -203,19 +205,17 @@ elif page_key == "clubs":
             col1, col2 = st.columns(2)
             
             with col1:
-                # HATA BURADAYDI: colorscale -> color_continuous_scale
                 fig = px.bar(df_clubs.head(15), x="Club", y="Market Value (M€)",
                             title="Top 15 Clubs by Market Value",
                             color="Market Value (M€)", color_continuous_scale="Blues")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             
             with col2:
-                # HATA BURADAYDI: colorscale -> color_continuous_scale
                 fig = px.scatter(df_clubs, x="Market Value (M€)", y="Players",
                                 title="Market Value vs Number of Players",
                                 size="Market Value (M€)", hover_data=["Club"],
                                 color="Market Value (M€)", color_continuous_scale="Greens")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
 # ===== PAGE: PLAYERS =====
 elif page_key == "players":
@@ -281,12 +281,12 @@ elif page_key == "players":
                 with col1:
                     position_counts = df_players["Position"].value_counts()
                     fig = px.pie(values=position_counts.values, names=position_counts.index, title="Players by Position")
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                 with col2:
                     age_dist = pd.to_numeric(df_players["Age"], errors='coerce').dropna()
                     if not age_dist.empty:
                         fig = px.histogram(age_dist, nbins=10, title="Age Distribution", labels={"value": "Age", "count": "Number of Players"})
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width="stretch")
 
 # ===== PAGE: MATCHES =====
 elif page_key == "matches":
@@ -304,6 +304,7 @@ elif page_key == "matches":
             for match in matches:
                 match_data.append({
                     "Date": match.match_date or "N/A",
+                    "Time": match.match_time or "N/A",
                     "Home": match.home_club.name if match.home_club else "N/A",
                     "Score": f"{match.home_goals or '-'} - {match.away_goals or '-'}",
                     "Away": match.away_club.name if match.away_club else "N/A",
@@ -397,7 +398,7 @@ elif page_key == "statistics":
         if league_values:
             df_values = pd.DataFrame([(l[0], l[1] or 0) for l in league_values], columns=["League", "Market Value"])
             fig = px.pie(df_values, values="Market Value", names="League", title="Market Value Share")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
     
     with col2:
         st.subheader("👥 Average Player Market Value by League")
@@ -408,10 +409,9 @@ elif page_key == "statistics":
         
         if player_values:
             df_player_values = pd.DataFrame([(p[0], p[1] or 0) for p in player_values], columns=["League", "Avg Player Value (M€)"])
-            # HATA BURADAYDI: colorscale -> color_continuous_scale
             fig = px.bar(df_player_values, x="League", y="Avg Player Value (M€)",
                         color="Avg Player Value (M€)", color_continuous_scale="Sunset")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
 # ===== PAGE: SETTINGS =====
 elif page_key == "settings":
@@ -440,12 +440,12 @@ elif page_key == "settings":
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("🔄 Reset Database", type="primary"):
+        if st.button("🔄 Reset Database", type="primary", key="reset_db_btn"):
             st.warning("Action not currently supported via button to prevent accidental drops.")
     with col2:
-        st.button("📊 View Database Stats", disabled=True)
+        st.button("📊 View Database Stats", disabled=True, key="view_db_btn")
     with col3:
-        st.button("⬇️ Export Data", disabled=True)
+        st.button("⬇️ Export Data", disabled=True, key="exp_data_btn")
 
 # ===== FOOTER =====
 st.divider()
