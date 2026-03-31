@@ -59,11 +59,9 @@ def get_data_sources_status(db):
         sources = db.query(DataSource).all()
         return {s.name: {'status': s.status, 'last_sync': s.last_sync} for s in sources}
     except Exception:
-        # Veritabanında DataSource tablosu henüz yoksa hata vermesin
         return {}
 
 # ===== SIDEBAR NAVIGATION =====
-# KRİTİK DÜZELTME: Logo hatası ve uyarılar giderildi.
 logo_url = "https://www.transfermarkt.com/assets/img/logo.png"
 if logo_url:
     try:
@@ -74,7 +72,6 @@ if logo_url:
 st.sidebar.title("📊 TM Analytics Pro")
 st.sidebar.divider()
 
-# Data sources status
 db = get_session()
 sources_status = get_data_sources_status(db)
 if sources_status:
@@ -145,7 +142,8 @@ if page_key == "dashboard":
                     "Code": league.code
                 })
             df_leagues = pd.DataFrame(league_data)
-            st.dataframe(df_leagues, use_container_width=True, hide_index=True)
+            # Uyarıyı önlemek için width="stretch" kullanıldı
+            st.dataframe(df_leagues, width="stretch", hide_index=True)
     
     with col2:
         st.subheader("💰 Total Market Value by League")
@@ -159,8 +157,9 @@ if page_key == "dashboard":
                 [(l[0], l[1] or 0) for l in league_values],
                 columns=["League", "Market Value (Millions)"]
             )
+            # HATA BURADAYDI: colorscale -> color_continuous_scale
             fig = px.bar(df_values, x="League", y="Market Value (Millions)", 
-                        color="Market Value (Millions)", colorscale="Viridis")
+                        color="Market Value (Millions)", color_continuous_scale="Viridis")
             st.plotly_chart(fig, use_container_width=True)
 
 # ===== PAGE: CLUBS =====
@@ -173,11 +172,7 @@ elif page_key == "clubs":
         col1, col2 = st.columns([2, 1])
         
         with col1:
-            selected_league = st.selectbox(
-                "Select League",
-                [l.name for l in leagues],
-                key="league_selector_clubs" # Eşsiz ID atandı
-            )
+            selected_league = st.selectbox("Select League", [l.name for l in leagues], key="league_selector_clubs")
         
         with col2:
             sort_by = st.selectbox("Sort By", ["Market Value", "Name"], key="sort_by_clubs")
@@ -203,23 +198,23 @@ elif page_key == "clubs":
             else:
                 df_clubs = df_clubs.sort_values("Club")
             
-            # Display as table
-            st.dataframe(df_clubs, use_container_width=True, hide_index=True)
+            st.dataframe(df_clubs, width="stretch", hide_index=True)
             
-            # Chart
             col1, col2 = st.columns(2)
             
             with col1:
+                # HATA BURADAYDI: colorscale -> color_continuous_scale
                 fig = px.bar(df_clubs.head(15), x="Club", y="Market Value (M€)",
                             title="Top 15 Clubs by Market Value",
-                            color="Market Value (M€)", colorscale="Blues")
+                            color="Market Value (M€)", color_continuous_scale="Blues")
                 st.plotly_chart(fig, use_container_width=True)
             
             with col2:
+                # HATA BURADAYDI: colorscale -> color_continuous_scale
                 fig = px.scatter(df_clubs, x="Market Value (M€)", y="Players",
                                 title="Market Value vs Number of Players",
                                 size="Market Value (M€)", hover_data=["Club"],
-                                color="Market Value (M€)", colorscale="Greens")
+                                color="Market Value (M€)", color_continuous_scale="Greens")
                 st.plotly_chart(fig, use_container_width=True)
 
 # ===== PAGE: PLAYERS =====
@@ -232,11 +227,7 @@ elif page_key == "players":
         col1, col2, col3 = st.columns([2, 1, 1])
         
         with col1:
-            selected_club = st.selectbox(
-                "Select Club",
-                [c.name for c in clubs],
-                key="club_selector_players"
-            )
+            selected_club = st.selectbox("Select Club", [c.name for c in clubs], key="club_selector_players")
         
         with col2:
             position_filter = st.selectbox("Position", ["All"] + ["GK", "DEF", "MID", "FWD"], key="pos_filter")
@@ -261,11 +252,9 @@ elif page_key == "players":
             
             df_players = pd.DataFrame(players_data)
             
-            # Filtering
             if position_filter != "All":
                 df_players = df_players[df_players["Position"].str.contains(position_filter, case=False, na=False)]
             
-            # Sorting
             if sort_by == "Market Value":
                 df_players = df_players.sort_values("Market Value (M€)", ascending=False)
             elif sort_by == "Age":
@@ -275,37 +264,28 @@ elif page_key == "players":
             else:
                 df_players = df_players.sort_values("Name")
             
-            st.dataframe(df_players, use_container_width=True, hide_index=True)
+            st.dataframe(df_players, width="stretch", hide_index=True)
             
-            # Statistics
             if not df_players.empty:
                 col1, col2, col3 = st.columns(3)
-                
                 with col1:
                     st.metric("Total Players", len(df_players))
-                
                 with col2:
                     avg_value = df_players["Market Value (M€)"].mean()
                     st.metric("Avg Market Value", f"€{avg_value:.1f}M")
-                
                 with col3:
                     avg_age = pd.to_numeric(df_players["Age"], errors='coerce').mean()
                     st.metric("Avg Age", f"{avg_age:.1f} years" if not pd.isna(avg_age) else "N/A")
                 
-                # Charts
                 col1, col2 = st.columns(2)
-                
                 with col1:
                     position_counts = df_players["Position"].value_counts()
-                    fig = px.pie(values=position_counts.values, names=position_counts.index,
-                                title="Players by Position")
+                    fig = px.pie(values=position_counts.values, names=position_counts.index, title="Players by Position")
                     st.plotly_chart(fig, use_container_width=True)
-                
                 with col2:
                     age_dist = pd.to_numeric(df_players["Age"], errors='coerce').dropna()
                     if not age_dist.empty:
-                        fig = px.histogram(age_dist, nbins=10, title="Age Distribution",
-                                        labels={"value": "Age", "count": "Number of Players"})
+                        fig = px.histogram(age_dist, nbins=10, title="Age Distribution", labels={"value": "Age", "count": "Number of Players"})
                         st.plotly_chart(fig, use_container_width=True)
 
 # ===== PAGE: MATCHES =====
@@ -315,12 +295,7 @@ elif page_key == "matches":
     leagues = db.query(League).all()
     
     if leagues:
-        selected_league = st.selectbox(
-            "Select League",
-            [l.name for l in leagues],
-            key="match_league_selector_matches"
-        )
-        
+        selected_league = st.selectbox("Select League", [l.name for l in leagues], key="match_league_selector_matches")
         league = db.query(League).filter(League.name == selected_league).first()
         matches = db.query(Match).filter(Match.league_id == league.id).order_by(Match.match_date.desc()).all()
         
@@ -337,18 +312,14 @@ elif page_key == "matches":
                 })
             
             df_matches = pd.DataFrame(match_data)
-            st.dataframe(df_matches, use_container_width=True, hide_index=True)
+            st.dataframe(df_matches, width="stretch", hide_index=True)
             
-            # Stats
             col1, col2, col3 = st.columns(3)
-            
             with col1:
                 st.metric("Total Matches", len(df_matches))
-            
             with col2:
                 finished = df_matches[df_matches["Status"] == "Finished"].shape[0]
                 st.metric("Finished", finished)
-            
             with col3:
                 scheduled = df_matches[df_matches["Status"] == "Scheduled"].shape[0]
                 st.metric("Scheduled", scheduled)
@@ -358,33 +329,23 @@ elif page_key == "matches":
 # ===== PAGE: MATCH ANALYSIS =====
 elif page_key == "analysis":
     st.title("📊 Detailed Match Analysis")
-    
     st.info("🔍 Select a match to view detailed statistics from multiple sources")
     
     leagues = db.query(League).all()
     
     if leagues:
-        selected_league = st.selectbox(
-            "Select League",
-            [l.name for l in leagues],
-            key="analysis_league_selector_analysis"
-        )
-        
+        selected_league = st.selectbox("Select League", [l.name for l in leagues], key="analysis_league_selector_analysis")
         league = db.query(League).filter(League.name == selected_league).first()
-        matches = db.query(Match).filter(
-            and_(Match.league_id == league.id, Match.status == 'Finished')
-        ).order_by(Match.match_date.desc()).all()
+        matches = db.query(Match).filter(and_(Match.league_id == league.id, Match.status == 'Finished')).order_by(Match.match_date.desc()).all()
         
         if matches:
             try:
                 match_options = [f"{m.home_club.name} vs {m.away_club.name} ({m.match_date or 'N/A'})" for m in matches]
                 selected_match_idx = st.selectbox("Select Match", range(len(match_options)), format_func=lambda x: match_options[x], key="analysis_match_sel")
-                
                 selected_match = matches[selected_match_idx]
                 
                 st.subheader(f"{selected_match.home_club.name} {selected_match.home_goals} - {selected_match.away_goals} {selected_match.away_club.name}")
                 
-                # Get match statistics (Eğer bu tablo veritabanında yoksa boş döner)
                 try:
                     stats = db.query(MatchStatistic).filter(MatchStatistic.match_id == selected_match.id).all()
                 except Exception:
@@ -392,15 +353,12 @@ elif page_key == "analysis":
                 
                 if stats:
                     col1, col2, col3 = st.columns(3)
-                    
                     with col1:
                         st.metric("📊 Data Sources", len(stats))
                     
-                    # Display statistics from each source
                     for stat in stats:
                         source_name = stat.source.name if stat.source else "Unknown"
                         st.subheader(f"📈 {source_name.title()} Statistics")
-                        
                         col1, col2, col3 = st.columns(3)
                         
                         if stat.home_possession:
@@ -437,10 +395,7 @@ elif page_key == "statistics":
         ).join(Club).group_by(League.name).all()
         
         if league_values:
-            df_values = pd.DataFrame(
-                [(l[0], l[1] or 0) for l in league_values],
-                columns=["League", "Market Value"]
-            )
+            df_values = pd.DataFrame([(l[0], l[1] or 0) for l in league_values], columns=["League", "Market Value"])
             fig = px.pie(df_values, values="Market Value", names="League", title="Market Value Share")
             st.plotly_chart(fig, use_container_width=True)
     
@@ -452,12 +407,10 @@ elif page_key == "statistics":
         ).join(Club).join(Player).group_by(League.name).all()
         
         if player_values:
-            df_player_values = pd.DataFrame(
-                [(p[0], p[1] or 0) for p in player_values],
-                columns=["League", "Avg Player Value (M€)"]
-            )
+            df_player_values = pd.DataFrame([(p[0], p[1] or 0) for p in player_values], columns=["League", "Avg Player Value (M€)"])
+            # HATA BURADAYDI: colorscale -> color_continuous_scale
             fig = px.bar(df_player_values, x="League", y="Avg Player Value (M€)",
-                        color="Avg Player Value (M€)", colorscale="Sunset")
+                        color="Avg Player Value (M€)", color_continuous_scale="Sunset")
             st.plotly_chart(fig, use_container_width=True)
 
 # ===== PAGE: SETTINGS =====
@@ -476,9 +429,7 @@ elif page_key == "settings":
                     "Last Sync": source.last_sync,
                     "Error": source.error_message or "None"
                 })
-            
-            df_sources = pd.DataFrame(source_data)
-            st.dataframe(df_sources, use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(source_data), width="stretch", hide_index=True)
         else:
             st.info("No data sources configured yet.")
     except Exception:
@@ -488,15 +439,11 @@ elif page_key == "settings":
     st.subheader("🗑️ Database Management")
     
     col1, col2, col3 = st.columns(3)
-    
     with col1:
         if st.button("🔄 Reset Database", type="primary"):
-            st.warning("Are you sure? This will delete all data. Action not currently supported via button to prevent accidental drops.")
-            # Güvenlik amaçlı reset_db çağrısı şimdilik pasifleştirildi.
-    
+            st.warning("Action not currently supported via button to prevent accidental drops.")
     with col2:
         st.button("📊 View Database Stats", disabled=True)
-    
     with col3:
         st.button("⬇️ Export Data", disabled=True)
 
@@ -509,7 +456,6 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# Güvenli kapatma
 try:
     db.close()
 except:
