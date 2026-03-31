@@ -1,7 +1,7 @@
 """Clubs scraper for Transfermarkt"""
 import requests
 from bs4 import BeautifulSoup
-from config import BASE_URL, REQUEST_TIMEOUT, USER_AGENT
+from config import TRANSFERMARKT_BASE_URL as BASE_URL, REQUEST_TIMEOUT, USER_AGENT
 import logging
 import time
 
