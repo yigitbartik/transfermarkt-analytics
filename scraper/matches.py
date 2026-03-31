@@ -1,117 +1,134 @@
-"""Matches scraper for Transfermarkt"""
+"""Players scraper for Transfermarkt"""
 import requests
 from bs4 import BeautifulSoup
 from config import TRANSFERMARKT_BASE_URL, REQUEST_TIMEOUT, USER_AGENT
 import logging
 import time
-import re
 
 logger = logging.getLogger(__name__)
 
-class MatchesScraper:
+class PlayersScraper:
     def __init__(self):
         self.base_url = TRANSFERMARKT_BASE_URL
         self.headers = {"User-Agent": USER_AGENT}
         self.timeout = REQUEST_TIMEOUT
     
-    def scrape_matches(self, league_code, league_slug):
-        """Scrape matches from a league"""
+    def scrape_players(self, club_id):
+        """Scrape players from a club squad"""
         try:
-            url = f"{self.base_url}/fixtures/spieltag/wettbewerb/{league_code}"
-            logger.info(f"Scraping matches from {url}")
+            url = f"{self.base_url}/squad/kader/verein/{club_id}/plus/1"
+            logger.info(f"Scraping players from {url}")
             
             response = requests.get(url, headers=self.headers, timeout=self.timeout)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.content, 'html.parser')
-            matches = []
+            players = []
             
-            rows = soup.find_all('tr')
+            # Find player table
+            player_rows = soup.select('table.items > tbody > tr')
             
-            for row in rows:
+            if not player_rows:
+                logger.warning(f"No player rows found for club {club_id}")
+                return []
+            
+            for row in player_rows:
                 try:
-                    res_cell = row.find('td', class_='zeile-ergebnis')
-                    if not res_cell or not res_cell.find('a'):
+                    # Skip if it's a title row
+                    if row.find('th'):
                         continue
                     
-                    link = res_cell.find('a')
-                    m_id = link.get('href', '').split('/')[-1]
-                    score = link.text.strip()
-                    
-                    if not m_id or m_id == '':
+                    name_cell = row.find('td', class_='hauptlink')
+                    if not name_cell:
                         continue
                     
-                    # Extract teams
-                    teams = row.find_all('td', class_='spieltagsansicht-vereinsname')
-                    if len(teams) < 2:
+                    name_tag = name_cell.find('a')
+                    if not name_tag:
                         continue
                     
-                    # Home team
-                    h_link = teams[0].find('a')
-                    if not h_link:
-                        continue
-                    h_id = h_link.get('href', '').split('verein/')[1].split('/')[0] if 'verein/' in h_link.get('href', '') else None
-                    h_name = h_link.text.strip()
+                    p_name = name_tag.text.strip()
+                    p_href = name_tag.get('href', '')
+                    p_id = p_href.split('spieler/')[1].split('/')[0] if 'spieler/' in p_href else None
                     
-                    # Away team
-                    a_link = teams[1].find('a')
-                    if not a_link:
-                        continue
-                    a_id = a_link.get('href', '').split('verein/')[1].split('/')[0] if 'verein/' in a_link.get('href', '') else None
-                    a_name = a_link.text.strip()
-                    
-                    if not h_id or not a_id:
+                    if not p_id:
                         continue
                     
-                    # Parse score
-                    h_goals, a_goals = None, None
-                    status = 'Scheduled'
+                    # --- YENİ EKLENEN KISIM: FOTOĞRAF ÇEKİMİ ---
+                    photo_url = None
+                    photo_tag = row.select_one('img.bilderrahmen-layout')
+                    if photo_tag:
+                        photo_url = photo_tag.get('data-src') or photo_tag.get('src')
+                        if photo_url:
+                            # Transfermarkt'ın küçük fotolarını (small) biraz daha kaliteli (medium) yapalım
+                            photo_url = photo_url.replace('small', 'medium')
+                    # --------------------------------------------
                     
-                    if ':' in score and score != "-:-":
+                    # Position
+                    position = "N/A"
+                    pos_table = row.find('table', class_='inline-table')
+                    if pos_table:
+                        pos_rows = pos_table.find_all('tr')
+                        if len(pos_rows) > 1:
+                            position = pos_rows[1].text.strip()
+                    
+                    # Age
+                    age = None
+                    zentriert = row.find_all('td', class_='zentriert')
+                    if len(zentriert) > 2:
+                        age_txt = zentriert[2].text.strip()
                         try:
-                            parts = score.split(':')
-                            if parts[0].strip().isdigit():
-                                h_goals = int(parts[0].strip())
-                            if parts[1].strip().isdigit():
-                                a_goals = int(parts[1].strip())
-                            if h_goals is not None and a_goals is not None:
-                                status = 'Finished'
+                            age = int(age_txt) if age_txt.isdigit() else None
                         except:
-                            pass
+                            age = None
                     
-                    # Extract date and time if available
-                    match_date = None
-                    match_time = None
+                    # Jersey number
+                    jersey = None
+                    if len(zentriert) > 0:
+                        jersey_txt = zentriert[0].text.strip()
+                        try:
+                            jersey = int(jersey_txt) if jersey_txt.isdigit() else None
+                        except:
+                            jersey = None
                     
-                    date_cell = row.find('td', class_='spieltagsansicht-datum')
-                    if date_cell:
-                        date_text = date_cell.text.strip()
-                        match_date = date_text[:10] if len(date_text) >= 10 else None
-                        if len(date_text) > 10:
-                            match_time = date_text[11:16] if len(date_text) > 16 else date_text[11:]
+                    # Market value
+                    mv_cell = row.select_one('td.rechts.hauptlink')
+                    market_value = mv_cell.text.strip() if mv_cell else "0"
                     
-                    matches.append({
-                        'transfermarkt_id': m_id,
-                        'home_club_id': h_id,
-                        'home_club_name': h_name,
-                        'away_club_id': a_id,
-                        'away_club_name': a_name,
-                        'home_goals': h_goals,
-                        'away_goals': a_goals,
-                        'status': status,
-                        'match_date': match_date,
-                        'match_time': match_time,
-                        'data_sources': {'transfermarkt': True}
+                    # --- GELİŞTİRİLMİŞ UYRUK (COUNTRY) ÇEKİMİ ---
+                    country = None
+                    flag_tag = row.select_one('img.flaggenrahmen')
+                    if flag_tag:
+                        country = flag_tag.get('title') or flag_tag.get('alt')
+                    else:
+                        # Bayrak sınıfı yoksa senin eski mantığın (yedek olarak) çalışsın
+                        img_tags = row.find_all('img')
+                        if img_tags:
+                            for img in img_tags:
+                                title = img.get('title', '')
+                                # Oyuncu resmi ile bayrağı karıştırmamak için bilderrahmen kontrolü eklendi
+                                if title and len(title) < 30 and 'bilderrahmen' not in img.get('class', []):
+                                    country = title
+                                    break
+                    
+                    players.append({
+                        'transfermarkt_id': p_id,
+                        'name': p_name,
+                        'position': position,
+                        'age': age,
+                        'jersey_number': jersey,
+                        'market_value': market_value,
+                        'country': country,
+                        'photo_url': photo_url  # YENİ
                     })
                     time.sleep(0.05)
                     
                 except Exception as e:
-                    logger.debug(f"Error parsing match row: {e}")
+                    logger.debug(f"Error parsing player row: {e}")
                     continue
             
-            logger.info(f"Successfully scraped {len(matches)} matches")
-            return matches
+            logger.info(f"Successfully scraped {len(players)} players for club {club_id}")
+            return players
             
         except Exception as e:
-            logger.error(f"Error scraping matches: {e}")
+            logger.error(f"Error scraping players for club {club_id}: {e}")
             return []
