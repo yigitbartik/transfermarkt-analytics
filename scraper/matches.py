@@ -1,51 +1,117 @@
+"""Matches scraper for Transfermarkt"""
 import requests
 from bs4 import BeautifulSoup
-from config import BASE_URL, REQUEST_TIMEOUT, USER_AGENT
+from config import TRANSFERMARKT_BASE_URL, REQUEST_TIMEOUT, USER_AGENT
 import logging
+import time
+import re
+
+logger = logging.getLogger(__name__)
 
 class MatchesScraper:
     def __init__(self):
-        self.base_url = BASE_URL
+        self.base_url = TRANSFERMARKT_BASE_URL
         self.headers = {"User-Agent": USER_AGENT}
         self.timeout = REQUEST_TIMEOUT
     
     def scrape_matches(self, league_code, league_slug):
+        """Scrape matches from a league"""
         try:
-            # KRİTİK DÜZELTME: URL başına /fixtures/ eklendi
             url = f"{self.base_url}/fixtures/spieltag/wettbewerb/{league_code}"
+            logger.info(f"Scraping matches from {url}")
+            
             response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response.raise_for_status()
+            
             soup = BeautifulSoup(response.content, 'html.parser')
             matches = []
             
             rows = soup.find_all('tr')
+            
             for row in rows:
-                res_cell = row.find('td', class_='zeile-ergebnis')
-                if not res_cell or not res_cell.find('a'): continue
-                
-                link = res_cell.find('a')
-                m_id = link['href'].split('/')[-1]
-                score = link.text.strip()
-                
-                teams = row.find_all('td', class_='spieltagsansicht-vereinsname')
-                if len(teams) < 2: continue
-                
-                h_id = teams[0].find('a')['href'].split('verein/')[1].split('/')[0]
-                a_id = teams[1].find('a')['href'].split('verein/')[1].split('/')[0]
-                
-                h_goals, a_goals = None, None
-                if ':' in score and score != "-:-":
-                    parts = score.split(':')
-                    if parts[0].isdigit(): h_goals = int(parts[0])
-                    if parts[1].isdigit(): a_goals = int(parts[1])
-
-                matches.append({
-                    'transfermarkt_id': m_id,
-                    'home_club_id': h_id,
-                    'away_club_id': a_id,
-                    'home_goals': h_goals,
-                    'away_goals': a_goals,
-                    'status': 'Finished' if h_goals is not None else 'Scheduled'
-                })
+                try:
+                    res_cell = row.find('td', class_='zeile-ergebnis')
+                    if not res_cell or not res_cell.find('a'):
+                        continue
+                    
+                    link = res_cell.find('a')
+                    m_id = link.get('href', '').split('/')[-1]
+                    score = link.text.strip()
+                    
+                    if not m_id or m_id == '':
+                        continue
+                    
+                    # Extract teams
+                    teams = row.find_all('td', class_='spieltagsansicht-vereinsname')
+                    if len(teams) < 2:
+                        continue
+                    
+                    # Home team
+                    h_link = teams[0].find('a')
+                    if not h_link:
+                        continue
+                    h_id = h_link.get('href', '').split('verein/')[1].split('/')[0] if 'verein/' in h_link.get('href', '') else None
+                    h_name = h_link.text.strip()
+                    
+                    # Away team
+                    a_link = teams[1].find('a')
+                    if not a_link:
+                        continue
+                    a_id = a_link.get('href', '').split('verein/')[1].split('/')[0] if 'verein/' in a_link.get('href', '') else None
+                    a_name = a_link.text.strip()
+                    
+                    if not h_id or not a_id:
+                        continue
+                    
+                    # Parse score
+                    h_goals, a_goals = None, None
+                    status = 'Scheduled'
+                    
+                    if ':' in score and score != "-:-":
+                        try:
+                            parts = score.split(':')
+                            if parts[0].strip().isdigit():
+                                h_goals = int(parts[0].strip())
+                            if parts[1].strip().isdigit():
+                                a_goals = int(parts[1].strip())
+                            if h_goals is not None and a_goals is not None:
+                                status = 'Finished'
+                        except:
+                            pass
+                    
+                    # Extract date and time if available
+                    match_date = None
+                    match_time = None
+                    
+                    date_cell = row.find('td', class_='spieltagsansicht-datum')
+                    if date_cell:
+                        date_text = date_cell.text.strip()
+                        match_date = date_text[:10] if len(date_text) >= 10 else None
+                        if len(date_text) > 10:
+                            match_time = date_text[11:16] if len(date_text) > 16 else date_text[11:]
+                    
+                    matches.append({
+                        'transfermarkt_id': m_id,
+                        'home_club_id': h_id,
+                        'home_club_name': h_name,
+                        'away_club_id': a_id,
+                        'away_club_name': a_name,
+                        'home_goals': h_goals,
+                        'away_goals': a_goals,
+                        'status': status,
+                        'match_date': match_date,
+                        'match_time': match_time,
+                        'data_sources': {'transfermarkt': True}
+                    })
+                    time.sleep(0.05)
+                    
+                except Exception as e:
+                    logger.debug(f"Error parsing match row: {e}")
+                    continue
+            
+            logger.info(f"Successfully scraped {len(matches)} matches")
             return matches
-        except:
+            
+        except Exception as e:
+            logger.error(f"Error scraping matches: {e}")
             return []

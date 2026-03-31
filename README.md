@@ -1,185 +1,264 @@
-# ⚽ Transfermarkt Analytics
+# ⚽ Transfermarkt Analytics Pro
 
-Transfermarkt'tan futbol verilerini çeken, SQLite veritabanında saklayan ve Streamlit ile görselleştiren modern bir analitik platformudur.
+A professional football analytics platform that aggregates data from multiple sources including Transfermarkt, SofaScore, and FotMob. Provides detailed match statistics, player analysis, and league insights.
 
-## 🎯 Özellikler
+## 🚀 Features
 
-- **📊 Dashboard**: Lig, kulüp, oyuncu ve maç istatistikleri
-- **⚽ Kulüp Analizi**: Liglere göre kulüpları görüntüle
-- **👤 Oyuncu Verileri**: Kulüplara göre oyuncu listesi
-- **🏟️ Maç Bilgileri**: Lig maçlarının detaylı bilgileri
-- **📈 İstatistikler**: Grafikler ve analitik görseller
+### Data Sources
+- **Transfermarkt**: Clubs, players, market values, basic match data
+- **SofaScore**: Detailed match statistics, player performances
+- **FotMob**: Extended match analytics and statistics
+- **Multi-source integration**: Automatically link and combine data from different sources
 
-## 📋 Gereksinimler
+### Analytics & Insights
+- 📊 **Dashboard**: Overview of all leagues, clubs, and players
+- ⚽ **Club Analysis**: Market values, squad composition, player distribution
+- 👥 **Player Profiles**: Detailed player information, market values, positions, age
+- 🏟️ **Match Results**: Complete match data, scores, dates
+- 📈 **Advanced Statistics**: Multi-source match statistics comparison
+- 💰 **Market Value Analysis**: League-wide and club-level market value insights
 
-- Python 3.11+
-- SQLite3
-- pip (Python paket yöneticisi)
+### Data Management
+- 🔄 **Automatic Updates**: Schedule or manual data refresh
+- 📡 **Multi-Source Sync**: Track which data comes from which source
+- 🗄️ **SQLite Database**: Efficient local storage with SQLAlchemy ORM
+- 🔍 **Advanced Filtering**: Filter by league, club, position, market value, etc.
 
-## 🚀 Kurulum
+## 📋 Requirements
 
-### 1. Repository'yi klonla
+- Python 3.9+
+- pip (Python package manager)
+- 500MB free disk space (for database and data)
+
+## 🔧 Installation
+
+### Option 1: Using pip (Recommended)
+
 ```bash
-git clone <repository-url>
+# Clone or extract the project
 cd transfermarkt-analytics
-```
 
-### 2. Sanal ortam oluştur
-```bash
+# Create virtual environment
 python -m venv venv
-```
 
-### 3. Sanal ortamı aktifleştir
-
-**Windows:**
-```bash
+# Activate virtual environment
+# On Windows:
 venv\Scripts\activate
-```
-
-**macOS/Linux:**
-```bash
+# On macOS/Linux:
 source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Install the package
+pip install -e .
 ```
 
-### 4. Gerekli paketleri yükle
+### Option 2: Direct installation
+
 ```bash
+# Extract the ZIP file
+cd transfermarkt-analytics
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-## 🏃 Kullanım
+## 🚀 Quick Start
 
-### Streamlit Uygulamasını Çalıştır
+### 1. Run the Streamlit App
+
 ```bash
 streamlit run app.py
 ```
 
-Tarayıcı otomatik olarak açılacak ve `http://localhost:8501` adresinde uygulama görünecektir.
+The app will open at `http://localhost:8501`
 
-### Scraper'ı Çalıştır
-```bash
-python run_scraper.py
-```
+### 2. Update Data
 
-## 📁 Proje Yapısı
+Click the "🔄 Update Data" button in the sidebar to fetch the latest information from all sources.
+
+This may take 10-15 minutes on first run as it:
+- Scrapes all leagues and clubs from Transfermarkt
+- Scrapes all players for each club
+- Fetches match data
+- Attempts to link matches with external sources (SofaScore, FotMob)
+
+### 3. Explore Analytics
+
+Navigate through different sections:
+- **Dashboard**: Overview and key metrics
+- **Clubs**: Browse clubs by league with detailed statistics
+- **Players**: View player lists with filtering and sorting
+- **Matches**: See match results and scores
+- **Match Analysis**: View detailed statistics from multiple sources
+- **Statistics**: League-wide insights and comparisons
+- **Settings**: Manage data and sources
+
+## 📁 Project Structure
 
 ```
 transfermarkt-analytics/
-├── app.py                    # Streamlit ana uygulaması
-├── config.py                 # Yapılandırma dosyası
-├── requirements.txt          # Python bağımlılıkları
-├── run_scraper.py           # Scraper çalıştırıcısı
+├── app.py                    # Main Streamlit application
+├── config.py                 # Configuration settings
+├── run_scraper.py           # Data collection orchestration
 ├── database/
 │   ├── __init__.py
-│   ├── db.py               # Veritabanı bağlantısı
-│   └── models.py           # SQLAlchemy modelleri
+│   ├── db.py               # Database connection
+│   └── models.py           # SQLAlchemy ORM models
 ├── scraper/
 │   ├── __init__.py
-│   ├── clubs.py            # Kulüpler scraper
-│   ├── players.py          # Oyuncular scraper
-│   └── matches.py          # Maçlar scraper
-├── .github/
-│   └── workflows/
-│       └── scrape.yml      # GitHub Actions workflow
-└── README.md               # Bu dosya
+│   ├── clubs.py            # Transfermarkt clubs scraper
+│   ├── players.py          # Transfermarkt players scraper
+│   ├── matches.py          # Transfermarkt matches scraper
+│   ├── sofascore.py        # SofaScore API integration
+│   └── fotmob.py           # FotMob API integration
+├── requirements.txt         # Python dependencies
+├── setup.py                # Package setup
+└── README.md               # This file
 ```
 
-## 🔧 Yapılandırma
+## 🗄️ Database Schema
 
-`config.py` dosyasında aşağıdaki ayarları yapabilirsiniz:
+### Core Tables
+
+- **leagues**: Football leagues (Premier League, La Liga, etc.)
+- **clubs**: Football clubs with market values and details
+- **players**: Player information including positions and market values
+- **matches**: Match results and basic information
+- **match_statistics**: Detailed statistics from multiple sources
+- **player_performances**: Individual player performance in matches
+- **data_sources**: Tracking of data source status and sync times
+
+## ⚙️ Configuration
+
+Edit `config.py` to customize:
 
 ```python
-BASE_URL = "https://www.transfermarkt.com"  # Transfermarkt URL
-DATABASE_URL = "sqlite:///./transfermarkt.db"  # Veritabanı yolu
-REQUEST_TIMEOUT = 10  # İstek zaman aşımı (saniye)
-RETRY_ATTEMPTS = 3  # Yeniden deneme sayısı
+# Enable/disable data sources
+ENABLE_SOFASCORE = True
+ENABLE_FOTMOB = True
+ENABLE_MATCH_LINKING = True
+
+# Database URL
+DATABASE_URL = "sqlite:///./transfermarkt.db"
+
+# Request settings
+REQUEST_TIMEOUT = 10
+RETRY_ATTEMPTS = 3
 ```
 
-### Desteklenen Ligler
+## 🔄 Data Update Process
 
-- 🇹🇷 Türkiye - Süper Lig
-- 🇬🇧 İngiltere - Premier League
-- 🇪🇸 İspanya - La Liga
-- 🇩🇪 Almanya - Bundesliga
-- 🇮🇹 İtalya - Serie A
-- 🇫🇷 Fransa - Ligue 1
-- 🇵🇹 Portekiz - Primeira Liga
-- 🇳🇱 Hollanda - Eredivisie
-- 🇧🇪 Belçika - Belgian Pro League
-- 🇬🇷 Yunanistan - Super League
+### Transfermarkt Scraping
+1. Iterates through all configured leagues
+2. Fetches all clubs for each league
+3. Fetches all players for each club
+4. Fetches match data
+5. Parses market values and other information
+6. Stores in database with error handling
 
-## 🤖 GitHub Actions (Otomatik Scraping)
+### External Source Integration
+1. Searches for matches on SofaScore using team names
+2. Retrieves detailed match statistics
+3. Links matches across sources
+4. Stores statistics with source attribution
 
-`.github/workflows/scrape.yml` dosyası günde bir kez otomatik olarak verileri çeker ve depoya gönderir.
+## 📊 Data Sources Details
 
-Kron zamanlaması:
-```
-Saat: 00:00 UTC
-Gün: Her gün
-```
+### Transfermarkt
+- **Type**: Web scraping (BeautifulSoup)
+- **Data**: Clubs, players, market values, match results
+- **Update Frequency**: Manual or scheduled
+- **Rate Limiting**: Polite delays between requests
 
-## 📊 Veritabanı Şeması
+### SofaScore
+- **Type**: REST API
+- **Data**: Match statistics, player performances, ratings
+- **Endpoints**: Teams search, match details, player stats
+- **Data Quality**: Very detailed and accurate
 
-### Tablolar
+### FotMob
+- **Type**: REST API  
+- **Data**: Match analytics, possession, shots, passes
+- **Endpoints**: Match search, league matches
+- **Data Quality**: Good coverage with analytical insights
 
-1. **leagues** - Futbol ligleri
-2. **clubs** - Kulüpler
-3. **players** - Oyuncular
-4. **matches** - Maçlar
+## 🐛 Troubleshooting
 
-Her tabloda `created_at` ve `updated_at` zaman damgaları bulunur.
+### Issue: "Database is locked"
+**Solution**: Close all instances of the app and delete `transfermarkt.db` if needed.
 
-## 🐛 Sorun Giderme
+### Issue: "No data showing"
+**Solution**: Click "Update Data" button to fetch initial data from sources.
 
-### "ModuleNotFoundError: No module named 'database'"
-Sanal ortamın aktif olduğundan emin olun ve bağımlılıkları yükleyin:
-```bash
-pip install -r requirements.txt
-```
+### Issue: Scraper running slow
+**Solution**: This is normal on first run. Subsequent updates are faster as it only adds new data.
 
-### Streamlit veritabanı bulamıyor
-Çalışma dizinin doğru olduğundan emin olun. `app.py` ile aynı dizinde çalıştırın:
-```bash
-cd /path/to/project
-streamlit run app.py
-```
+### Issue: API rate limiting errors
+**Solution**: Wait a few minutes before retrying. Requests are already rate-limited internally.
 
-### Scraper veri çekemiyor
-- İnternet bağlantınızı kontrol edin
-- User-Agent'in aktif olduğundan emin olun
-- Transfermarkt sitesinin erişilebilir olduğunu doğrulayın
+### Issue: Some matches missing external statistics
+**Solution**: Not all matches can be linked to external sources due to name variations or data differences.
 
-## 📦 Bağımlılıklar
+## 🔐 Privacy & Terms
 
-| Paket | Sürüm | Amaç |
-|-------|-------|------|
-| requests | >=2.31.0 | HTTP istekleri |
-| beautifulsoup4 | >=4.12.2 | HTML parsing |
-| selenium | >=4.15.2 | Web tarama (dinamik içerik) |
-| sqlalchemy | >=2.0.23 | ORM |
-| streamlit | >=1.28.1 | Web arayüzü |
-| pandas | >=2.2.0 | Veri analizi |
-| plotly | >=5.18.0 | İnteraktif grafikler |
-| lxml | >=4.9.5 | XML/HTML işleme |
+- **Transfermarkt**: Data is scraped following their robots.txt rules
+- **SofaScore**: Uses public API (check their terms of service)
+- **FotMob**: Data accessed through official endpoints
+- **Legal**: Use for personal/educational purposes only. Commercial use may require permissions.
 
-## 📝 Not
+## 📈 Performance Tips
 
-- Transfermarkt'ın Robots.txt ve Kullanım Şartlarına uyun
-- Aşırı scraping yapımı engelleyebilir - request delay'ini ayarlayın
-- Veritabanında saklanan veriler telif altında olabilir
+1. **Initial Setup**: First data sync takes 10-15 minutes
+2. **Incremental Updates**: Subsequent updates are much faster
+3. **Database**: Stored locally, no internet required after initial sync
+4. **Filtering**: Use filters to reduce data and improve performance
+5. **Memory**: If running slowly, close other applications
 
-## 🤝 Katkıda Bulunma
+## 🤝 Contributing
 
-Pull request'ler memnuniyetle kabul edilir. Büyük değişiklikler için lütfen önce konu açın.
+Contributions welcome! Areas for improvement:
+- Additional data sources (Understat, InStat, etc.)
+- Prediction models for match outcomes
+- Player comparison tools
+- Transfer market analysis
+- Performance optimizations
 
-## 📄 Lisans
+## 📝 License
 
-Bu proje MIT Lisansı altında yayınlanmıştır.
+This project is provided as-is for educational and personal use.
 
-## 📞 İletişim
+## 🆘 Support
 
-Sorularınız veya önerileriniz varsa, lütfen Issue açın.
+For issues or questions:
+1. Check the troubleshooting section above
+2. Review the code comments
+3. Check data source status in Settings page
+4. Ensure all dependencies are installed correctly
+
+## 🔮 Future Enhancements
+
+- [ ] Player transfer predictions
+- [ ] Match outcome predictions
+- [ ] Advanced player comparison tools
+- [ ] Performance trend analysis
+- [ ] Custom report generation
+- [ ] Data export functionality
+- [ ] Team formation analysis
+- [ ] Injury tracker
+- [ ] Fixture difficulty ratings
+- [ ] Player rating predictions
+
+## 📚 References
+
+- [Transfermarkt](https://www.transfermarkt.com/)
+- [SofaScore](https://www.sofascore.com/)
+- [FotMob](https://www.fotmob.com/)
+- [SQLAlchemy Documentation](https://docs.sqlalchemy.org/)
+- [Streamlit Documentation](https://docs.streamlit.io/)
 
 ---
 
-**Son Güncelleme**: Mart 2026
-**Versiyon**: 1.0.0
+**Made with ⚽ and Python**  
+Last Updated: 2024
