@@ -1,117 +1,129 @@
-"""Players scraper for Transfermarkt"""
+"""Clubs scraper for Transfermarkt"""
 import requests
 from bs4 import BeautifulSoup
-from config import TRANSFERMARKT_BASE_URL, REQUEST_TIMEOUT, USER_AGENT
+from config import BASE_URL, REQUEST_TIMEOUT, USER_AGENT
 import logging
 import time
 
 logger = logging.getLogger(__name__)
 
-class PlayersScraper:
+class ClubsScraper:
     def __init__(self):
-        self.base_url = TRANSFERMARKT_BASE_URL
+        # NOTE: config dosyasında adı TRANSFERMARKT_BASE_URL ise lütfen aşağıyı ona göre düzenle
+        # (Şu an standart config.py yapına göre BASE_URL kullanıldı)
+        self.base_url = BASE_URL
         self.headers = {"User-Agent": USER_AGENT}
         self.timeout = REQUEST_TIMEOUT
     
-    def scrape_players(self, club_id):
-        """Scrape players from a club squad"""
+    def scrape_clubs(self, league_slug, league_code):
+        """Scrape clubs from a league"""
         try:
-            url = f"{self.base_url}/squad/kader/verein/{club_id}/plus/1"
-            logger.info(f"Scraping players from {url}")
+            url = f"{self.base_url}/{league_slug}/startseite/wettbewerb/{league_code}"
+            logger.info(f"Scraping clubs from {url}")
             
             response = requests.get(url, headers=self.headers, timeout=self.timeout)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.content, 'html.parser')
-            players = []
+            clubs = []
             
-            # Find player table
-            player_rows = soup.select('table.items > tbody > tr')
-            
-            if not player_rows:
-                logger.warning(f"No player rows found for club {club_id}")
+            # Find main table
+            table = soup.find('table', class_='items')
+            if not table or not table.find('tbody'):
+                logger.warning(f"No table found for {league_slug}")
                 return []
             
-            for row in player_rows:
+            club_rows = table.find('tbody').find_all('tr', recursive=False)
+            
+            for row in club_rows:
                 try:
-                    # Skip if it's a title row
-                    if row.find('th'):
+                    # Find club name and link
+                    name_td = row.find('td', class_='hauptlink')
+                    if not name_td:
                         continue
                     
-                    name_cell = row.find('td', class_='hauptlink')
-                    if not name_cell:
+                    link_tag = name_td.find('a')
+                    if not link_tag:
                         continue
                     
-                    name_tag = name_cell.find('a')
-                    if not name_tag:
+                    club_name = link_tag.text.strip()
+                    club_href = link_tag.get('href', '')
+                    
+                    # Extract Transfermarkt ID
+                    tm_id = None
+                    if 'verein/' in club_href:
+                        tm_id = club_href.split('verein/')[1].split('/')[0]
+                    
+                    if not tm_id:
                         continue
                     
-                    p_name = name_tag.text.strip()
-                    p_href = name_tag.get('href', '')
-                    p_id = p_href.split('spieler/')[1].split('/')[0] if 'spieler/' in p_href else None
+                    # --- YENİ EKLENEN KISIM: LOGO ÇEKİMİ ---
+                    # Logolar tablonun başındaki td içinde yer alıyor
+                    img_tag = row.select_one('td img')
+                    logo_url = None
+                    if img_tag:
+                        logo_url = img_tag.get('data-src') or img_tag.get('src')
+                        # Logoyu yüksek çözünürlüklü yapmak için
+                        if logo_url:
+                            logo_url = logo_url.replace('tiny', 'header').replace('small', 'header')
+                    # ----------------------------------------
                     
-                    if not p_id:
-                        continue
+                    # Extract market value
+                    market_value_tds = row.find_all('td', class_='rechts')
+                    market_value = market_value_tds[-1].text.strip() if market_value_tds else "0"
                     
-                    # Position
-                    position = "N/A"
-                    pos_table = row.find('table', class_='inline-table')
-                    if pos_table:
-                        pos_rows = pos_table.find_all('tr')
-                        if len(pos_rows) > 1:
-                            position = pos_rows[1].text.strip()
+                    # Try to find stadium (if available in row)
+                    stadium = None
+                    tds = row.find_all('td')
+                    if len(tds) > 2:
+                        stadium = tds[2].text.strip() if tds[2].text.strip() else None
                     
-                    # Age
-                    age = None
-                    zentriert = row.find_all('td', class_='zentriert')
-                    if len(zentriert) > 2:
-                        age_txt = zentriert[2].text.strip()
-                        try:
-                            age = int(age_txt) if age_txt.isdigit() else None
-                        except:
-                            age = None
-                    
-                    # Jersey number
-                    jersey = None
-                    if len(zentriert) > 0:
-                        jersey_txt = zentriert[0].text.strip()
-                        try:
-                            jersey = int(jersey_txt) if jersey_txt.isdigit() else None
-                        except:
-                            jersey = None
-                    
-                    # Market value
-                    mv_cell = row.select_one('td.rechts.hauptlink')
-                    market_value = mv_cell.text.strip() if mv_cell else "0"
-                    
-                    # Country (if available)
-                    country = None
-                    img_tags = row.find_all('img')
-                    if img_tags:
-                        for img in img_tags:
-                            title = img.get('title', '')
-                            if title and len(title) < 30:
-                                country = title
-                                break
-                    
-                    players.append({
-                        'transfermarkt_id': p_id,
-                        'name': p_name,
-                        'position': position,
-                        'age': age,
-                        'jersey_number': jersey,
+                    club_data = {
+                        'transfermarkt_id': tm_id,
+                        'name': club_name,
                         'market_value': market_value,
-                        'country': country
-                    })
-                    time.sleep(0.05)
+                        'stadium': stadium,
+                        'country': None,
+                        'logo_url': logo_url  # Önceden None'dı, şimdi logo var!
+                    }
+                    clubs.append(club_data)
+                    time.sleep(0.05)  # Be nice to servers
                     
                 except Exception as e:
-                    logger.debug(f"Error parsing player row: {e}")
+                    logger.error(f"Error parsing club row: {e}")
                     continue
             
-            logger.info(f"Successfully scraped {len(players)} players for club {club_id}")
-            return players
+            logger.info(f"Successfully scraped {len(clubs)} clubs")
+            return clubs
             
         except Exception as e:
-            logger.error(f"Error scraping players for club {club_id}: {e}")
+            logger.error(f"Error scraping clubs: {e}")
             return []
+    
+    def get_club_details(self, club_id):
+        """Get detailed information about a club"""
+        try:
+            url = f"{self.base_url}/verein/{club_id}"
+            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            details = {
+                'transfermarkt_id': club_id,
+                'name': None,
+                'market_value': None,
+                'founded': None,
+                'website': None
+            }
+            
+            # Try to extract name
+            name_h1 = soup.find('h1')
+            if name_h1:
+                details['name'] = name_h1.text.strip()
+            
+            return details
+            
+        except Exception as e:
+            logger.error(f"Error getting club details for {club_id}: {e}")
+            return None
