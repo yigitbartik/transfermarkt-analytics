@@ -1,134 +1,82 @@
-"""Players scraper for Transfermarkt"""
+"""Matches scraper for Transfermarkt"""
 import requests
 from bs4 import BeautifulSoup
-from config import TRANSFERMARKT_BASE_URL, REQUEST_TIMEOUT, USER_AGENT
+from config import TRANSFERMARKT_BASE_URL as BASE_URL, REQUEST_TIMEOUT, USER_AGENT
 import logging
 import time
 
 logger = logging.getLogger(__name__)
 
-class PlayersScraper:
+class MatchesScraper:
     def __init__(self):
-        self.base_url = TRANSFERMARKT_BASE_URL
+        self.base_url = BASE_URL
         self.headers = {"User-Agent": USER_AGENT}
         self.timeout = REQUEST_TIMEOUT
     
-    def scrape_players(self, club_id):
-        """Scrape players from a club squad"""
+    def scrape_matches(self, league_code, league_slug):
         try:
-            url = f"{self.base_url}/squad/kader/verein/{club_id}/plus/1"
-            logger.info(f"Scraping players from {url}")
-            
+            url = f"{self.base_url}/fixtures/spieltag/wettbewerb/{league_code}"
             response = requests.get(url, headers=self.headers, timeout=self.timeout)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.content, 'html.parser')
-            players = []
+            matches = []
+            current_date = None 
             
-            # Find player table
-            player_rows = soup.select('table.items > tbody > tr')
-            
-            if not player_rows:
-                logger.warning(f"No player rows found for club {club_id}")
-                return []
-            
-            for row in player_rows:
+            rows = soup.find_all('tr')
+            for row in rows:
                 try:
-                    # Skip if it's a title row
-                    if row.find('th'):
+                    row_classes = row.get('class', [])
+                    if 'taggeszeile' in row_classes:
+                        current_date = row.text.strip()
                         continue
                     
-                    name_cell = row.find('td', class_='hauptlink')
-                    if not name_cell:
-                        continue
+                    res_cell = row.find('td', class_='zeile-ergebnis')
+                    if not res_cell or not res_cell.find('a'): continue
                     
-                    name_tag = name_cell.find('a')
-                    if not name_tag:
-                        continue
+                    link = res_cell.find('a')
+                    m_id = link.get('href', '').split('/')[-1]
+                    score = link.text.strip()
+                    if not m_id: continue
                     
-                    p_name = name_tag.text.strip()
-                    p_href = name_tag.get('href', '')
-                    p_id = p_href.split('spieler/')[1].split('/')[0] if 'spieler/' in p_href else None
+                    teams = row.find_all('td', class_='spieltagsansicht-vereinsname')
+                    if len(teams) < 2: continue
                     
-                    if not p_id:
-                        continue
+                    h_link = teams[0].find('a')
+                    a_link = teams[1].find('a')
+                    if not h_link or not a_link: continue
                     
-                    # --- YENİ EKLENEN KISIM: FOTOĞRAF ÇEKİMİ ---
-                    photo_url = None
-                    photo_tag = row.select_one('img.bilderrahmen-layout')
-                    if photo_tag:
-                        photo_url = photo_tag.get('data-src') or photo_tag.get('src')
-                        if photo_url:
-                            # Transfermarkt'ın küçük fotolarını (small) biraz daha kaliteli (medium) yapalım
-                            photo_url = photo_url.replace('small', 'medium')
-                    # --------------------------------------------
+                    h_id = h_link.get('href', '').split('verein/')[1].split('/')[0] if 'verein/' in h_link.get('href', '') else None
+                    a_id = a_link.get('href', '').split('verein/')[1].split('/')[0] if 'verein/' in a_link.get('href', '') else None
+                    if not h_id or not a_id: continue
                     
-                    # Position
-                    position = "N/A"
-                    pos_table = row.find('table', class_='inline-table')
-                    if pos_table:
-                        pos_rows = pos_table.find_all('tr')
-                        if len(pos_rows) > 1:
-                            position = pos_rows[1].text.strip()
-                    
-                    # Age
-                    age = None
-                    zentriert = row.find_all('td', class_='zentriert')
-                    if len(zentriert) > 2:
-                        age_txt = zentriert[2].text.strip()
+                    h_goals, a_goals = None, None
+                    status = 'Scheduled'
+                    if ':' in score and score != "-:-":
                         try:
-                            age = int(age_txt) if age_txt.isdigit() else None
-                        except:
-                            age = None
+                            parts = score.split(':')
+                            h_goals = int(parts[0].strip())
+                            a_goals = int(parts[1].strip())
+                            status = 'Finished'
+                        except: pass
                     
-                    # Jersey number
-                    jersey = None
-                    if len(zentriert) > 0:
-                        jersey_txt = zentriert[0].text.strip()
-                        try:
-                            jersey = int(jersey_txt) if jersey_txt.isdigit() else None
-                        except:
-                            jersey = None
+                    match_time = None
+                    time_cell = row.find('td', class_='zeit')
+                    if time_cell: match_time = time_cell.text.strip()
                     
-                    # Market value
-                    mv_cell = row.select_one('td.rechts.hauptlink')
-                    market_value = mv_cell.text.strip() if mv_cell else "0"
-                    
-                    # --- GELİŞTİRİLMİŞ UYRUK (COUNTRY) ÇEKİMİ ---
-                    country = None
-                    flag_tag = row.select_one('img.flaggenrahmen')
-                    if flag_tag:
-                        country = flag_tag.get('title') or flag_tag.get('alt')
-                    else:
-                        # Bayrak sınıfı yoksa senin eski mantığın (yedek olarak) çalışsın
-                        img_tags = row.find_all('img')
-                        if img_tags:
-                            for img in img_tags:
-                                title = img.get('title', '')
-                                # Oyuncu resmi ile bayrağı karıştırmamak için bilderrahmen kontrolü eklendi
-                                if title and len(title) < 30 and 'bilderrahmen' not in img.get('class', []):
-                                    country = title
-                                    break
-                    
-                    players.append({
-                        'transfermarkt_id': p_id,
-                        'name': p_name,
-                        'position': position,
-                        'age': age,
-                        'jersey_number': jersey,
-                        'market_value': market_value,
-                        'country': country,
-                        'photo_url': photo_url  # YENİ
+                    matches.append({
+                        'transfermarkt_id': m_id,
+                        'home_club_id': h_id,
+                        'away_club_id': a_id,
+                        'home_goals': h_goals,
+                        'away_goals': a_goals,
+                        'status': status,
+                        'match_date': current_date,
+                        'match_time': match_time
                     })
                     time.sleep(0.05)
-                    
-                except Exception as e:
-                    logger.debug(f"Error parsing player row: {e}")
+                except Exception:
                     continue
-            
-            logger.info(f"Successfully scraped {len(players)} players for club {club_id}")
-            return players
-            
-        except Exception as e:
-            logger.error(f"Error scraping players for club {club_id}: {e}")
+            return matches
+        except Exception:
             return []
